@@ -85,6 +85,18 @@ struct Registry {
     /// Leaked entries so callers can hold `&'static` references.
     entries: Vec<&'static FontEntry>,
     by_hash: HashMap<[u8; 32], FontId>,
+    /// Ids of the bundled faces after the primary, in fallback order.
+    fallbacks: Vec<FontId>,
+}
+
+fn make_entry(name: &str, bytes: &'static [u8]) -> &'static FontEntry {
+    let entry = FontEntry {
+        name: name.to_owned(),
+        bytes,
+        hb: HbFace::from_slice(bytes, 0).expect("bundled font parses"),
+        ttf: TtfFace::parse(bytes, 0).expect("bundled font parses"),
+    };
+    Box::leak(Box::new(entry))
 }
 
 fn registry() -> &'static RwLock<Registry> {
@@ -92,19 +104,28 @@ fn registry() -> &'static RwLock<Registry> {
     REGISTRY.get_or_init(|| {
         // Slot 0 is reserved for the embedded font so `Style` needs no
         // `Option` round-trip and `None` can mean "the built-in one".
-        let mut entries: Vec<&'static FontEntry> = Vec::new();
-        let bytes: &'static [u8] = crate::shape::font_bytes();
-        let entry = FontEntry {
-            name: embedded_family_name().to_owned(),
-            bytes,
-            hb: HbFace::from_slice(bytes, 0).expect("embedded font parses"),
-            ttf: TtfFace::parse(bytes, 0).expect("embedded font parses"),
-        };
-        let leaked: &'static FontEntry = Box::leak(Box::new(entry));
-        entries.push(leaked);
+        let mut entries: Vec<&'static FontEntry> = vec![make_entry(
+            embedded_family_name(),
+            crate::shape::font_bytes(),
+        )];
+        let mut fallbacks = Vec::new();
+
+        // The bundled fallbacks follow the primary. They are registered into the
+        // same id space as caller fonts so every backend resolves a `FontId` the
+        // same way, with no special-cased "fallback slot" anywhere.
+        for (family, bytes) in crate::shape::bundled_fallbacks() {
+            if entries.iter().any(|e| e.bytes.as_ptr() == bytes.as_ptr()) {
+                continue;
+            }
+            let leaked = make_entry(family, bytes);
+            fallbacks.push(entries.len() as FontId);
+            entries.push(leaked);
+        }
+
         RwLock::new(Registry {
             entries,
             by_hash: HashMap::new(),
+            fallbacks,
         })
     })
 }
@@ -180,6 +201,51 @@ pub fn register_font(name: &str, bytes: &[u8]) -> Result<FontId, Error> {
     reg.entries.push(leaked_entry);
     reg.by_hash.insert(hash, id);
     Ok(id)
+}
+
+/// Resolve a `FontId` to one that exists, degrading to the built-in font.
+///
+/// Coverage and shaping must both go through this. An id that is not registered
+/// has no face to ask about, so asking it for coverage answered "no" for every
+/// character and silently rerouted the whole run into the fallback chain. Since
+/// ids arrive from untrusted JSON in the bindings, that is reachable from
+/// ordinary input.
+#[must_use]
+pub fn resolve(id: FontId) -> FontId {
+    if font_entry(id).is_some() {
+        id
+    } else {
+        BUILTIN_FONT
+    }
+}
+
+/// Does `font` have a glyph for `ch`?
+///
+/// Coverage is a `cmap` question, so this is a parsed-font lookup rather than a
+/// shaping result. A font that covers a character can still shape it to a
+/// `.notdef`-producing sequence in pathological cases, but that is vanishingly
+/// rare and the shaper's own `missing` flag still catches it.
+#[must_use]
+pub fn font_covers(font: FontId, ch: char) -> bool {
+    font_entry(resolve(font)).is_some_and(|e| e.ttf.glyph_index(ch).is_some())
+}
+
+/// The first bundled fallback covering `ch`, or `None` if none does.
+///
+/// The search is over bundled faces only. Caller-registered fonts are *not*
+/// consulted: silently substituting a caller's font for coverage they did not
+/// ask for would make the primary font non-deterministic in a way no caller
+/// could reason about. A caller who wants their own face used for fallback
+/// should set it on the node, which is the explicit path.
+#[must_use]
+pub fn font_covering(ch: char) -> Option<FontId> {
+    let reg = registry()
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    reg.fallbacks
+        .iter()
+        .copied()
+        .find(|&id| font_entry(id).is_some_and(|e| e.ttf.glyph_index(ch).is_some()))
 }
 
 /// Resolve a font id to a face, falling back to the embedded font.

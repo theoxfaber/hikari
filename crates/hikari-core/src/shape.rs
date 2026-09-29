@@ -10,7 +10,7 @@ use std::sync::OnceLock;
 
 use rustybuzz::{Direction, UnicodeBuffer};
 
-use crate::font::FontId;
+use crate::font::{FontId, BUILTIN_FONT};
 use unicode_bidi::BidiInfo;
 
 /// Embedded font bytes: the build-time subset (see `build.rs`) — the single
@@ -21,9 +21,61 @@ pub fn font_bytes() -> &'static [u8] {
     include_bytes!(concat!(env!("OUT_DIR"), "/dejavu-subset.ttf"))
 }
 
-/// System CJK-capable fallback bytes, loaded lazily. Never bundled
-/// (proprietary on macOS); production deployments should ship a subsetted
-/// OFL CJK font instead of relying on these paths.
+/// Bundled fallback faces, in fallback order: `(family, subset bytes)`.
+///
+/// These are build-time subsets of OFL fonts, so they are present on every
+/// platform and their output is deterministic. That is the point: relying on a
+/// system path meant a render could differ between a developer's Mac and a
+/// Linux CI box.
+#[must_use]
+pub fn bundled_fallbacks() -> Vec<(&'static str, &'static [u8])> {
+    // Each face sits behind its own `#[cfg]` function rather than a `cfg!` test
+    // inside one body: `include_bytes!` resolves its path during compilation,
+    // so a disabled feature's file must not merely be unreferenced, it must not
+    // be named at all.
+    let mut out: Vec<(&'static str, &'static [u8])> = Vec::new();
+    if let Some(face) = hebrew_face() {
+        out.push(face);
+    }
+    if let Some(face) = cjk_face() {
+        out.push(face);
+    }
+    out
+}
+
+#[cfg(feature = "bundled-hebrew")]
+fn hebrew_face() -> Option<(&'static str, &'static [u8])> {
+    Some((
+        "Noto Sans Hebrew",
+        include_bytes!(concat!(env!("OUT_DIR"), "/noto-hebrew-subset.ttf")),
+    ))
+}
+
+#[cfg(not(feature = "bundled-hebrew"))]
+fn hebrew_face() -> Option<(&'static str, &'static [u8])> {
+    None
+}
+
+#[cfg(feature = "bundled-cjk")]
+fn cjk_face() -> Option<(&'static str, &'static [u8])> {
+    Some((
+        "Noto Sans SC",
+        include_bytes!(concat!(env!("OUT_DIR"), "/noto-cjk-subset.ttf")),
+    ))
+}
+
+#[cfg(not(feature = "bundled-cjk"))]
+fn cjk_face() -> Option<(&'static str, &'static [u8])> {
+    None
+}
+
+/// System CJK-capable fallback bytes, loaded lazily, as a last resort.
+///
+/// Only consulted when no bundled face covers a character — a rare case, since
+/// the bundled faces cover the scripts this library claims to render. It is
+/// deliberately *not* deterministic: two machines may load different files, or
+/// none. Anything relying on byte-identical output must bundle the face it needs
+/// rather than depend on this.
 pub fn fallback_font_bytes() -> Option<&'static [u8]> {
     static BYTES: OnceLock<Option<Vec<u8>>> = OnceLock::new();
     const CANDIDATES: &[&str] = &[
@@ -74,6 +126,10 @@ pub fn shape_text(text: &str, px: f32, font: FontId) -> (Vec<PlacedAdvance>, f32
     if upem <= 0.0 {
         return (Vec::new(), 0.0);
     }
+    // Every advance is tagged with the id that was actually shaped, so the
+    // painter cannot disagree with the shaper about which face produced a
+    // glyph — including for an id that was not registered.
+    let font = crate::font::resolve(font);
     // First line only; callers split on '\n' for multiline.
     let line = text.split('\n').next().unwrap_or("");
     let mut out = Vec::new();
@@ -251,7 +307,71 @@ fn visual_runs(line: &str) -> Vec<(String, bool)> {
     runs
 }
 
+/// The fallback chain: fonts tried, in order, when the primary font lacks a
+/// glyph. Returns the id of the first bundled font covering `ch`, else
+/// [`BUILTIN_FONT`] so the caller's "missing" path still triggers.
+fn fallback_for_char(ch: char) -> FontId {
+    crate::font::font_covering(ch).unwrap_or(BUILTIN_FONT)
+}
+
+/// Split `run` into maximal segments that the same font can shape.
+///
+/// This is what makes complex-script fallback actually work. Previously a
+/// missing glyph fell back to *rasterizing the character* in a system font
+/// (`GlyphRef::Char`), which never goes through the shaper — so Arabic, Hebrew
+/// and Devanagari text drew as isolated letters no matter which font was
+/// installed, because there is no joining to be had outside the shaper.
+/// Shaping each segment with a font that covers it means the fallback gets the
+/// same GSUB treatment as the primary and joins properly.
+///
+/// Segments break on coverage, never inside a grapheme cluster, so a joining
+/// sequence whose letters share a font stays in one segment.
+fn segment_by_coverage(run: &str, font: FontId) -> Vec<(&str, FontId)> {
+    // Resolve first: an unregistered id must behave exactly like the built-in,
+    // and asking an unknown id about coverage would answer "no" for every
+    // character and divert the whole run into the fallback chain.
+    let primary = crate::font::resolve(font);
+    // Fast path: if the primary covers everything, there is one segment. This is
+    // the overwhelmingly common case (Latin), so it stays allocation-free.
+    if run.chars().all(|c| crate::font::font_covers(primary, c)) {
+        return vec![(run, primary)];
+    }
+
+    let mut segments: Vec<(&str, FontId)> = Vec::new();
+    let mut start = 0usize;
+    let mut current = primary;
+    for (idx, ch) in run.char_indices() {
+        let want = if crate::font::font_covers(primary, ch) {
+            primary
+        } else {
+            fallback_for_char(ch)
+        };
+        if want != current && idx > start {
+            segments.push((&run[start..idx], current));
+            start = idx;
+        }
+        current = want;
+    }
+    segments.push((&run[start..], current));
+    segments
+}
+
 fn shape_run(run: &str, rtl: bool, px: f32, font: FontId) -> (Vec<PlacedAdvance>, f32) {
+    if run.is_empty() {
+        return (Vec::new(), 0.0);
+    }
+    let mut all: Vec<PlacedAdvance> = Vec::new();
+    let mut total = 0.0;
+    for (segment, seg_font) in segment_by_coverage(run, font) {
+        let (mut adv, w) = shape_segment(segment, rtl, px, seg_font);
+        all.append(&mut adv);
+        total += w;
+    }
+    (all, total)
+}
+
+/// Shape a single segment, known to be covered by `font`.
+fn shape_segment(run: &str, rtl: bool, px: f32, font: FontId) -> (Vec<PlacedAdvance>, f32) {
     if run.is_empty() {
         return (Vec::new(), 0.0);
     }

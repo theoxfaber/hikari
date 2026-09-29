@@ -195,6 +195,30 @@ pub const RANGES: &[(u32, u32)] = &[
     (0xFE70, 0xFEFF), // Arabic presentation forms-B
 ];
 
+/// Codepoint ranges for the optional CJK face.
+///
+/// Kept separate from [`RANGES`] because CJK is a cargo feature: a full CJK
+/// coverage set is measured in megabytes, which is unacceptable inside a
+/// 2.8 MB WebAssembly build but reasonable for a server that ships native.
+///
+/// The three tiers are the pragmatic choice, not a principled one — they follow
+/// how much of the repertoire each successive set of scripts actually needs.
+/// Measured on `NotoSansSC[wght].ttf`, see `BENCHMARKS.md` for the byte counts
+/// that justify the cut points.
+pub const CJK_RANGES: &[(u32, u32)] = &[
+    (0x0020, 0x007E), // ASCII: a CJK document still has Latin in it
+    (0x00A0, 0x00FF), // Latin-1 supplement, for the same reason
+    (0x2000, 0x206F), // General punctuation: the CJK fullwidth forms live here
+    (0x3000, 0x303F), // CJK symbols and punctuation
+    (0x3040, 0x309F), // Hiragana
+    (0x30A0, 0x30FF), // Katakana
+    (0x31F0, 0x31FF), // Katakana phonetic extensions
+    (0x3400, 0x4DBF), // CJK unified ideographs extension A
+    (0x4E00, 0x9FFF), // CJK unified ideographs
+    (0xF900, 0xFAFF), // CJK compatibility ideographs
+    (0xFF00, 0xFFEF), // Halfwidth and fullwidth forms
+];
+
 /// What the subsetter produced, for build-time logging and tests.
 #[derive(Debug, Clone, Copy)]
 pub struct SubsetStats {
@@ -215,7 +239,22 @@ fn err(msg: &str) -> String {
 }
 
 /// Subset `src` to [`RANGES`], preserving glyph ids and layout tables.
+///
+/// A convenience wrapper over [`subset_ranges`] for callers that want the
+/// Latin-covering default. The build script calls [`subset_ranges`] directly,
+/// once per bundled face.
+#[allow(dead_code)]
 pub fn subset(src: &[u8]) -> Result<(Vec<u8>, SubsetStats), String> {
+    subset_ranges(src, RANGES)
+}
+
+/// Subset `src` to `ranges`, preserving glyph ids and layout tables.
+///
+/// Every embedded face goes through this one function. The Latin-covering
+/// default uses [`RANGES`]; the optional CJK face uses [`CJK_RANGES`]. Keeping
+/// a single implementation is deliberate — a second subsetter would be a second
+/// place for the layout-table bug to reappear, and that bug is silent.
+pub fn subset_ranges(src: &[u8], ranges: &[(u32, u32)]) -> Result<(Vec<u8>, SubsetStats), String> {
     let font = Font::parse(src.to_vec());
 
     let maxp = font.get("maxp").ok_or_else(|| err("missing maxp"))?;
@@ -295,7 +334,7 @@ pub fn subset(src: &[u8]) -> Result<(Vec<u8>, SubsetStats), String> {
     // --- seed the glyph set from the cmap over our ranges -------------------
     let mut keep: BTreeSet<u16> = BTreeSet::from([0]);
     let mut pairs: Vec<(u32, u16)> = Vec::new();
-    for (lo, hi) in RANGES {
+    for (lo, hi) in ranges {
         for cp in *lo..=*hi {
             if let Some(gid) = lookup(cp) {
                 if usize::from(gid) < num_glyphs {

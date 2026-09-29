@@ -89,6 +89,29 @@ jobs:
       - run: cargo test -p hikari-rs-core font_subset -- --nocapture
       - run: cargo test -p hikari-rs-raster shaped_glyph_ids -- --nocapture
 
+  font-chain:
+    name: bundled font chain
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # The chain splits a run by font coverage and shapes each segment with a
+      # face that has the glyph. That is the only way fallback text can join,
+      # because joining happens in the shaper and a character-keyed rasterizer
+      # lookup bypasses it entirely. It gets its own job because the failure it
+      # guards is silent: a broken chain still emits valid PNGs, just blank or
+      # unshaped where a script should be.
+      - name: fetch the OFL CJK face
+        run: sh scripts/fetch-bundled-fonts.sh cjk
+      - name: fallback routes to a real face
+        run: cargo test -p hikari-rs-core --features bundled-cjk font_chain -- --nocapture
+      - name: fallback reaches the rasterizer
+        run: cargo test -p hikari-rs --features bundled-cjk --test font_fallback_chain -- --nocapture
+      # The opt-in feature must not break the default build, so compile the
+      # whole workspace with it on as well as off.
+      - run: cargo clippy --workspace --all-targets --features hikari-rs/bundled-cjk -- -D warnings
+
   determinism:
     name: cross-platform byte determinism
     runs-on: ubuntu-latest

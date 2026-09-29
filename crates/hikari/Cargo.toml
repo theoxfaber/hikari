@@ -21,6 +21,13 @@ hikari-rs-license.workspace = true
 hikari-rs-pdf.workspace = true
 rayon.workspace = true
 
+[features]
+default = ["bundled-hebrew"]
+# Forwarded to `hikari-rs-core`, which is where the font is embedded. Re-exported
+# so a caller can enable CJK on the facade without knowing which crate owns it.
+bundled-hebrew = ["hikari-rs-core/bundled-hebrew"]
+bundled-cjk = ["hikari-rs-core/bundled-cjk"]
+
 [dev-dependencies]
 criterion.workspace = true
 image.workspace = true

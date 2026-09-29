@@ -12,6 +12,16 @@ homepage = "https://theoxfaber.github.io/hikari"
 [lib]
 name = "hikari_core"
 
+[features]
+default = ["bundled-hebrew"]
+# Bundle a subsetted OFL Hebrew face, so Hebrew joins instead of drawing as
+# isolated letters. 57 KB after subsetting.
+bundled-hebrew = []
+# Bundle a subsetted OFL CJK face. Opt-in because it is 9.9 MB after
+# subsetting, which would dwarf the 2.8 MB WebAssembly build. Enable it for
+# native deployments that must render CJK deterministically.
+bundled-cjk = []
+
 [dependencies]
 taffy.workspace = true
 serde.workspace = true

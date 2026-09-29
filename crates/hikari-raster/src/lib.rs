@@ -657,7 +657,11 @@ fn draw_text(text: &str, node: &Placed, pix: &mut Pixmap, bx: f32, by: f32) -> R
         let mut cx = bx + ((node.w - total) / 2.0).max(0.0);
         for adv in advances {
             let draw_x = cx + adv.x_offset;
-            // Per-glyph fallback: the node's font first, system CJK second.
+            // The shaper has already resolved which face each glyph belongs to
+            // and shaped it there, so the normal path is simply "use the font
+            // the advance names". Only a glyph no bundled face covers reaches
+            // the system fallback, and that one is addressed by character
+            // because it was never shaped anywhere.
             let (font_id, glyph_font) = if adv.missing {
                 match fallback_font().filter(|fb| fb.has_glyph(adv.ch)) {
                     Some(fb) => (1u8, fb),
@@ -668,9 +672,6 @@ fn draw_text(text: &str, node: &Placed, pix: &mut Pixmap, bx: f32, by: f32) -> R
             };
             let mut glyph_adv = adv.advance;
             if adv.ch != ' ' && !adv.ch.is_control() {
-                // The primary font is addressed by the id the shaper chose and
-                // the glyph id it chose there. The fallback font never went
-                // through the shaper, so it is addressed by character instead.
                 let target = if font_id == 1 {
                     GlyphRef::Char(adv.ch)
                 } else {

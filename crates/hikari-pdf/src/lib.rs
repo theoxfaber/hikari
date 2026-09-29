@@ -298,6 +298,20 @@ impl PdfDoc {
         if let Some(text) = &node.text {
             let px = node.style.font_size.unwrap_or(16.0).max(1.0);
             let font = node.style.font.unwrap_or(BUILTIN_FONT);
+            // Validate the id the node *declares*, before shaping. The shaper
+            // normalises an unknown id to the built-in font so text still
+            // renders, which is right for raster and SVG but wrong for PDF: a
+            // document that silently substituted a typeface would embed the
+            // wrong font and the caller would have no way to tell. So the check
+            // is here, on the declared value, rather than inferred from the
+            // shaped advances.
+            if let Some(id) = node.style.font {
+                if hikari_core::font_entry(id).is_none() {
+                    return Err(Error::Asset(format!(
+                        "unknown font id {id}; register it before rendering"
+                    )));
+                }
+            }
             for line in text.split('\n') {
                 let (advances, _) = shape_text(line, px, font);
                 for adv in &advances {

@@ -23,3 +23,8 @@ motion.gif
 # Rendered output shown in the docs site. These are real engine output, not
 # design assets, so they are committed and diffable rather than ignored.
 !docs/img/**
+# The CJK source font for the opt-in `bundled-cjk` feature is 17 MB and most
+# builds never enable it, so it is fetched by
+# `scripts/fetch-bundled-fonts.sh` instead of carried in git. The 112 KB Hebrew
+# face is committed, so a default build needs nothing.
+crates/hikari-core/assets/fonts/NotoSansSC.ttf
