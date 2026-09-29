@@ -10,7 +10,7 @@
 //!   (including the first) and repeat on continuations (table headers).
 //! - Inter-child gaps come from the root style and are budgeted per page.
 
-use crate::{compute_layout, line_height, wrap_text, Node, Style};
+use crate::{compute_layout, line_height, wrap_text, Node, Style, BUILTIN_FONT};
 
 /// Page box for flowing content.
 #[derive(Debug, Clone, Copy)]
@@ -163,7 +163,7 @@ fn split_text(node: &Node, content_w: f32) -> Option<(f32, Vec<String>)> {
             let width = style.max_width.unwrap_or(content_w).max(1.0);
             Some((
                 fs,
-                wrap_text(text, fs, width)
+                wrap_text(text, fs, width, style.font.unwrap_or(BUILTIN_FONT))
                     .split('\n')
                     .map(str::to_owned)
                     .collect(),

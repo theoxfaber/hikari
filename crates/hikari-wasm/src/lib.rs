@@ -17,6 +17,17 @@ pub fn version() -> String {
     env!("CARGO_PKG_VERSION").to_owned()
 }
 
+/// Register font bytes and return an id to put in a node's `font` field.
+///
+/// Idempotent on content, so registering the same bytes twice returns the same
+/// id. Ids live for the life of the module instance. `name` is used for SVG
+/// output; lookup is by id.
+#[wasm_bindgen]
+pub fn register_font(name: &str, bytes: &[u8]) -> Result<u32, JsValue> {
+    hikari::register_font(name, bytes)
+        .map_err(|e| JsValue::from_str(&format!("register_font: {e}")))
+}
+
 /// Render a node-tree JSON document to PNG bytes.
 #[wasm_bindgen]
 pub fn render_png(tree_json: &str, width: u32, height: u32) -> Result<Vec<u8>, JsValue> {

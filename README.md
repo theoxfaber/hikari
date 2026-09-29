@@ -58,6 +58,7 @@ codebase are the unglamorous ones.
 |---|---|
 | **Layout** | Flexbox, CSS grid, block flow, absolute positioning, margins, borders, gaps |
 | **Text** | Shaping, bidi/RTL, word wrap, balanced headlines, fit-to-width, `background-clip: text` |
+| **Fonts** | Embedded subset by default, plus caller-supplied fonts via `register_font`, inherited through the tree |
 | **Scripts** | Latin, Greek, Cyrillic, Hebrew, Arabic with contextual joining, Persian. CJK via system fallback |
 | **Images** | PNG/JPEG/GIF/WebP decode, `cover`/`contain`/`fill`, rounded clipping, decode cache |
 | **Paint** | Solid, linear and radial gradients, box shadows (blurred raster + SVG `feDropShadow`) |
@@ -184,9 +185,49 @@ belonged. Both tests are verified to fail against the broken behaviour.
 
 ## Fonts
 
+The embedded DejaVu subset is the default, and you can register your own.
+Rendering in a brand typeface is the normal case for social images, so
+`register_font` is a first-class API rather than a patch.
+
+```rust
+use hikari::{register_font, render_png, Node, Style};
+
+let brand = register_font("Inter", &std::fs::read("Inter-Regular.ttf")?)?;
+let tree = Node::container(
+    Style::row()
+        .with_size(1200.0, 630.0)
+        .with_background("#0b1020")
+        .with_font(brand),
+    vec![Node::text("Shipped in your typeface", Style::text(72.0, "#ffffff"))],
+);
+render_png(&tree, 1200, 630)?;
+```
+
+`Style::with_font` takes a `FontId`, is **inherited by descendants**, and
+applies to layout, measurement, raster, SVG and PDF alike — so a font set once
+on a card root is the font every glyph in it is shaped, measured and drawn with.
+An unregistered id degrades to the embedded font rather than failing, since ids
+arrive from untrusted JSON in the bindings.
+
+Registration is keyed on the SHA-256 of the font bytes, so registering the same
+font twice returns the same id and does no work. That is what makes the lifetime
+strategy safe: a server re-registering its brand font on every request leaks
+nothing, because the second request hits the content hash.
+`registered_font_count()` is exposed for callers generating unbounded distinct
+fonts.
+
+In Node: `registerFont(name, bytes)`. In WASM: `register_font(name, bytes)`.
+
+```sh
+cargo run -p hikari-rs --example custom_font   # same card, two typefaces
+```
+
 `crates/hikari-core/assets/DejaVuSans.ttf` (DejaVu Fonts License, permissive) is
-subset at build time and is the single source of truth for shaping,
-rasterization and PDF, so all three agree by construction.
+subset at build time and covers Latin, Latin Extended A/B, Greek, Cyrillic,
+Hebrew, Arabic, Arabic Presentation Forms A and B, General Punctuation,
+super/subscripts, currency, letterlike symbols, arrows, mathematical operators,
+geometric shapes, miscellaneous symbols and dingbats. CJK falls back to a system
+font at runtime — see [Known limitations](#known-limitations).
 
 ### The subset preserves shaping
 
@@ -344,11 +385,6 @@ commercial terms, rather than obfuscation. See [PRICING.md](PRICING.md).
 
 Stated plainly, because a limitations section that hedges is worse than none.
 
-- **No custom font loading.** The only font available is the embedded DejaVu
-  subset; there is no API to supply your own, and the PDF and SVG backends
-  hardcode the same family. For OG images this is the most limiting gap in the
-  project, and it is first on the [roadmap](#roadmap). It is a real blocker for
-  anyone whose brand has a typeface, not a rough edge.
 - **Hebrew does not join.** DejaVu Sans contains no Hebrew presentation forms,
   so even the unshaded source font renders `שלום` with isolated letters. This is
   font coverage, not a subsetting defect — a test asserts the subset matches
@@ -387,15 +423,12 @@ Stated plainly, because a limitations section that hedges is worse than none.
 
 Ordered by what most limits the project, not by what is easiest.
 
-- [ ] **Load caller-supplied fonts.** There is no public font-loading API yet:
-      the embedded DejaVu subset is compiled in and is the only font the Rust,
-      PDF, SVG, Node and WASM paths will use. An OG-image generator whose text
-      cannot be set in the brand's typeface is not usable for its main job, so
-      this gates adoption more than any other item here.
+- [x] **Caller-supplied fonts** via `register_font`, inherited through the tree
+      and honoured by layout, raster, SVG and PDF (v0.19)
 - [ ] **Typed builder / JSX-style front end.** Today callers hand-build node
-      trees or externally tagged JSON. Colour strings now work in JSON, but the
-      ergonomics of building a tree by hand are still the weakest part of the
-      API.
+      trees or externally tagged JSON. Colour strings and custom fonts both work
+      in JSON, but the ergonomics of building a tree by hand are still the
+      weakest part of the API.
 - [ ] **Migrate off `rustybuzz` and `ttf-parser` to `fontations`**
       (`skrifa` / `write-fonts`). Both crates are unmaintained. This is the
       single largest piece of technical debt and the only reason abandoned code
@@ -411,8 +444,6 @@ Ordered by what most limits the project, not by what is easiest.
       shared runners are too noisy to assert on timings, so this needs a
       dedicated runner.
 - [ ] **Animated WebP** encoding, and PDF/A + PDF/UA conformance.
-- [ ] **Typed style builder** shared across Rust, Node and WASM, generated
-      from one definition.
 
 Shipped in v0.18: shaping and bidi with CJK fallback, grid and image nodes,
 gradients, PNG and SVG, animated GIF and APNG, lossless WebP, the full PDF
@@ -428,7 +459,7 @@ benchmarks and supply chain.
 ## Development
 
 ```sh
-cargo test --workspace --exclude hikari-rs-node   # 73 tests
+cargo test --workspace --exclude hikari-rs-node   # 84 tests
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check
 cargo deny check

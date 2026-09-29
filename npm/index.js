@@ -6,6 +6,8 @@ const binding = createRequire(__filename)('./hikari-node.node');
 // unreachable for anyone using the package entry point.
 module.exports = {
   version: binding.version,
+  registerFont: binding.registerFont,
+  registeredFontCount: binding.registeredFontCount,
   renderPngSync: binding.renderPngSync,
   renderSvgSync: binding.renderSvgSync,
   renderWebpSync: binding.renderWebpSync,

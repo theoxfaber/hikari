@@ -15,7 +15,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use hikari_core::{
     compute_layout, fallback_font_bytes, font_bytes, hash_bytes, line_height, paginate, shape_text,
-    Background, Error, Flow, ImgFit, Media, Node, Placed,
+    Background, Error, Flow, ImgFit, Media, Node, Placed, BUILTIN_FONT,
 };
 use pdf_writer::types::{ActionType, AnnotationType, CidFontType, FontFlags, SystemInfo};
 use pdf_writer::writers::Outline;
@@ -177,8 +177,22 @@ struct EmbeddedImage {
     mask_flate: Option<Vec<u8>>,
 }
 
+/// Which font an advance should be drawn with. `Primary` indexes
+/// [`PdfDoc::fonts`]; the fallback is emitted last and has no index until the
+/// font list is final.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FontSlot {
+    Primary(usize),
+    Fallback,
+}
+
 struct PdfDoc {
-    primary: DocFont,
+    /// Fonts in use; index 0 is always the embedded font. Custom fonts named by
+    /// `Style::font` are appended in first-use order.
+    fonts: Vec<DocFont>,
+    /// `FontId` to index into `fonts`.
+    font_index: HashMap<hikari_core::FontId, usize>,
+    /// System CJK fallback, emitted after every primary font.
     fallback: Option<DocFont>,
     images: Vec<EmbeddedImage>,
     image_index: HashMap<String, usize>,
@@ -186,8 +200,12 @@ struct PdfDoc {
 
 impl PdfDoc {
     fn new() -> Result<Self, Error> {
+        let builtin = DocFont::parse(b"F1", "DejaVuSans", font_bytes())?;
+        let mut font_index = HashMap::new();
+        font_index.insert(hikari_core::BUILTIN_FONT, 0usize);
         Ok(Self {
-            primary: DocFont::parse(b"F1", "DejaVuSans", font_bytes())?,
+            fonts: vec![builtin],
+            font_index,
             fallback: fallback_font_bytes()
                 .and_then(|b| DocFont::parse(b"F2", "ArialUnicodeMS", b).ok()),
             images: Vec::new(),
@@ -195,13 +213,68 @@ impl PdfDoc {
         })
     }
 
-    /// Font index for a shaped advance: primary unless it lacks the glyph.
-    fn font_for(&self, adv: &hikari_core::PlacedAdvance) -> Result<usize, Error> {
+    /// Index into [`Self::fonts`] for a `FontId`, registering the font on
+    /// first use. Returns `None` for an id that was never registered, which
+    /// the caller degrades to the embedded font.
+    fn slot_for(&mut self, id: hikari_core::FontId) -> Result<usize, Error> {
+        if let Some(&i) = self.font_index.get(&id) {
+            return Ok(i);
+        }
+        let Some(entry) = hikari_core::font_entry(id) else {
+            return Err(Error::Asset(format!(
+                "unknown font id {id}; register it before rendering"
+            )));
+        };
+        // PDF resource names must be unique per font.
+        let tag: &'static [u8; 2] = match self.fonts.len() {
+            0 => b"F1",
+            n if n < 25 => {
+                let letter = (b'A' + n as u8) as char;
+                let leaked: &'static mut [u8] =
+                    Box::leak(format!("F{letter}").into_bytes().into_boxed_slice());
+                (&*leaked).try_into().expect("two-byte tag")
+            }
+            n => {
+                return Err(Error::Asset(format!(
+                    "too many distinct fonts in one document ({n}); PDF font \
+                     resource names here only run to FZ"
+                )))
+            }
+        };
+        let font = DocFont::parse(tag, &entry.name, entry.bytes())?;
+        let index = self.fonts.len();
+        self.fonts.push(font);
+        self.font_index.insert(id, index);
+        Ok(index)
+    }
+
+    /// Font index for a font already seen during collection. Read-only, because
+    /// the write pass runs after `collect` has registered every font in the
+    /// document; an unknown id here would mean the two passes disagreed.
+    fn slot_of(&self, adv: &hikari_core::PlacedAdvance) -> Result<FontSlot, Error> {
         if !adv.missing {
-            return Ok(0);
+            let index =
+                self.font_index.get(&adv.font).copied().ok_or_else(|| {
+                    Error::Asset(format!("font {} was never collected", adv.font))
+                })?;
+            return Ok(FontSlot::Primary(index));
         }
         match &self.fallback {
-            Some(fb) if fb.has(adv.ch) => Ok(1),
+            Some(fb) if fb.has(adv.ch) => Ok(FontSlot::Fallback),
+            _ => Err(Error::Asset(format!(
+                "no glyph for {:?} (install a CJK fallback font)",
+                adv.ch
+            ))),
+        }
+    }
+
+    /// Font slot for a shaped advance: its own font unless that lacks the glyph.
+    fn font_for(&mut self, adv: &hikari_core::PlacedAdvance) -> Result<FontSlot, Error> {
+        if !adv.missing {
+            return Ok(FontSlot::Primary(self.slot_for(adv.font)?));
+        }
+        match &self.fallback {
+            Some(fb) if fb.has(adv.ch) => Ok(FontSlot::Fallback),
             _ => Err(Error::Asset(format!(
                 "no glyph for {:?} (install a CJK fallback font)",
                 adv.ch
@@ -220,25 +293,26 @@ impl PdfDoc {
     ) -> Result<(), Error> {
         if let Some(text) = &node.text {
             let px = node.style.font_size.unwrap_or(16.0).max(1.0);
+            let font = node.style.font.unwrap_or(BUILTIN_FONT);
             for line in text.split('\n') {
-                let (advances, _) = shape_text(line, px);
+                let (advances, _) = shape_text(line, px, font);
                 for adv in &advances {
                     // Spaces are emitted as real glyphs so extracted text
                     // keeps word breaks; only control chars are skipped.
                     if adv.ch.is_control() {
                         continue;
                     }
-                    let fi = self.font_for(adv)?;
-                    let (gid, width) = if fi == 0 {
-                        (adv.gid, adv.advance / px * 1000.0)
-                    } else {
-                        let fb = self.fallback.as_ref().expect("checked");
-                        (fb.gid_of(adv.ch)?, fb.exact_width(adv.ch))
+                    let slot = self.font_for(adv)?;
+                    let (gid, width) = match slot {
+                        FontSlot::Primary(_) => (adv.gid, adv.advance / px * 1000.0),
+                        FontSlot::Fallback => {
+                            let fb = self.fallback.as_ref().expect("checked");
+                            (fb.gid_of(adv.ch)?, fb.exact_width(adv.ch))
+                        }
                     };
-                    let font = if fi == 0 {
-                        &mut self.primary
-                    } else {
-                        self.fallback.as_mut().expect("checked")
+                    let font = match slot {
+                        FontSlot::Primary(i) => &mut self.fonts[i],
+                        FontSlot::Fallback => self.fallback.as_mut().expect("checked"),
                     };
                     font.widths
                         .entry(gid)
@@ -305,9 +379,11 @@ impl PdfDoc {
     /// Falls back to full embed per font on any subset error — files stay
     /// correct, just larger.
     fn subset_fonts(&mut self) {
-        let mut fonts = vec![&mut self.primary];
-        fonts.extend(self.fallback.as_mut());
-        for font in fonts {
+        // `fonts` then the fallback: the same order they are emitted in, so
+        // `font_refs` indices line up with `FontSlot::Primary(i)`.
+        let mut all: Vec<&mut DocFont> = self.fonts.iter_mut().collect();
+        all.extend(self.fallback.as_mut());
+        for font in all {
             if font.widths.is_empty() {
                 continue;
             }
@@ -387,14 +463,20 @@ impl PdfDoc {
             cmap: Ref,
             file: Ref,
         }
-        let mut font_refs = vec![FontRefs {
-            tag: self.primary.tag,
-            type0: next(),
-            cid: next(),
-            desc: next(),
-            cmap: next(),
-            file: next(),
-        }];
+        // One resource block per font actually used, in `fonts` order, with
+        // the fallback appended last when it set any glyphs.
+        let mut font_refs: Vec<FontRefs> = self
+            .fonts
+            .iter()
+            .map(|f| FontRefs {
+                tag: f.tag,
+                type0: next(),
+                cid: next(),
+                desc: next(),
+                cmap: next(),
+                file: next(),
+            })
+            .collect();
         // Embed the fallback font only when it actually set glyphs.
         if let Some(fb) = self.fallback.as_ref().filter(|f| !f.widths.is_empty()) {
             font_refs.push(FontRefs {
@@ -442,17 +524,16 @@ impl PdfDoc {
             page_refs.push((next(), next()));
         }
 
-        let primary_file = deflate(
-            self.primary
-                .subset_bytes
-                .as_deref()
-                .unwrap_or(self.primary.bytes),
-        );
+        // Embedded font programs, in the same order as `font_refs`.
+        let font_files: Vec<Vec<u8>> = self
+            .fonts
+            .iter()
+            .map(|f| deflate(f.subset_bytes.as_deref().unwrap_or(f.bytes)))
+            .collect();
         let fallback_file = self
             .fallback
             .as_ref()
             .map(|f| deflate(f.subset_bytes.as_deref().unwrap_or(f.bytes)));
-        let primary_cmap = tocmap(&self.primary);
         let fallback_cmap = self.fallback.as_ref().map(tocmap);
 
         let mut pdf = Pdf::new();
@@ -491,11 +572,36 @@ impl PdfDoc {
             .kids(page_refs.iter().map(|(p, _)| *p))
             .count(page_refs.len() as i32);
 
-        let mut fonts: Vec<&DocFont> = vec![&self.primary];
+        let mut fonts: Vec<&DocFont> = self.fonts.iter().collect();
         if self.fallback.as_ref().is_some_and(|f| !f.widths.is_empty()) {
             fonts.push(self.fallback.as_ref().expect("checked"));
         }
-        for (font, refs) in fonts.iter().zip(font_refs.iter()) {
+        for (index, (font, refs)) in fonts.iter().zip(font_refs.iter()).enumerate() {
+            // Primaries occupy `font_files` in order; the fallback, when
+            // present, is the final entry in `fonts` and uses its own bytes.
+            let is_fallback = index >= self.fonts.len();
+            // Bound, not inlined into the tuple: a temporary here would be
+            // dropped before the stream is written.
+            let own_cmap = if is_fallback {
+                Vec::new()
+            } else {
+                tocmap(font)
+            };
+            let (cmap_bytes, file_bytes, file_len) = if is_fallback {
+                let fb = self.fallback.as_ref().expect("checked");
+                (
+                    fallback_cmap.as_ref().expect("checked").as_slice(),
+                    fallback_file.as_ref().expect("checked").as_slice(),
+                    fb.subset_bytes.as_deref().unwrap_or(fb.bytes).len(),
+                )
+            } else {
+                let own = font_files[index].as_slice();
+                (
+                    own_cmap.as_slice(),
+                    own,
+                    font.subset_bytes.as_deref().unwrap_or(font.bytes).len(),
+                )
+            };
             pdf.type0_font(refs.type0)
                 .base_font(Name(font.name.as_bytes()))
                 .encoding_predefined(Name(b"Identity-H"))
@@ -541,24 +647,6 @@ impl PdfDoc {
                 .cap_height(font.cap_height)
                 .stem_v(80.0)
                 .font_file2(refs.file);
-            let (cmap_bytes, file_bytes, file_len) = if font.tag == b"F1" {
-                (
-                    primary_cmap.as_slice(),
-                    primary_file.as_slice(),
-                    self.primary
-                        .subset_bytes
-                        .as_deref()
-                        .unwrap_or(self.primary.bytes)
-                        .len(),
-                )
-            } else {
-                let fb = self.fallback.as_ref().expect("checked");
-                (
-                    fallback_cmap.as_ref().expect("checked").as_slice(),
-                    fallback_file.as_ref().expect("checked").as_slice(),
-                    fb.subset_bytes.as_deref().unwrap_or(fb.bytes).len(),
-                )
-            };
             pdf.stream(refs.cmap, cmap_bytes);
             {
                 let mut s = pdf.stream(refs.file, file_bytes);
@@ -977,12 +1065,19 @@ fn paint_text(
     let lh = line_height(px);
     let lines: Vec<&str> = text.split('\n').collect();
     let total_h = lines.len() as f32 * lh;
-    let ascent = doc.primary.ascender / doc.primary.upem * px;
+    let font_id = node.style.font.unwrap_or(BUILTIN_FONT);
+    let ascent = doc
+        .fonts
+        .get(doc.font_index.get(&font_id).copied().unwrap_or(0))
+        .map_or(doc.fonts[0].ascender / doc.fonts[0].upem, |f| {
+            f.ascender / f.upem
+        })
+        * px;
     let mut baseline = by + ((node.h - total_h) / 2.0).max(0.0) + ascent;
     let (fr, fg_, fb, _) = fg.to_rgba_f32();
     content.set_fill_rgb(fr, fg_, fb);
     for line in lines {
-        let (advances, total) = shape_text(line, px);
+        let (advances, total) = shape_text(line, px, font_id);
         let mut pen = bx + ((node.w - total) / 2.0).max(0.0);
         // Group consecutive advances by font: one Tj per segment.
         let mut segs: Vec<(usize, Vec<u8>, f32)> = Vec::new();
@@ -991,18 +1086,15 @@ fn paint_text(
                 pen += adv.advance;
                 continue;
             }
-            let fi = doc.font_for(adv)?;
-            let orig = if fi == 0 {
-                adv.gid
-            } else {
-                doc.fallback.as_ref().expect("checked").gid_of(adv.ch)?
+            let slot = doc.slot_of(adv)?;
+            let (fi, orig, remap) = match slot {
+                FontSlot::Primary(i) => (i, adv.gid, &doc.fonts[i].remap),
+                FontSlot::Fallback => {
+                    let f = doc.fallback.as_ref().expect("checked");
+                    (doc.fonts.len(), f.gid_of(adv.ch)?, &f.remap)
+                }
             };
             // Subset fonts renumber glyphs: map original -> embedded gid.
-            let remap = if fi == 0 {
-                &doc.primary.remap
-            } else {
-                &doc.fallback.as_ref().expect("checked").remap
-            };
             let gid = remap.get(&orig).copied().unwrap_or(orig);
             match segs.last_mut() {
                 Some((f, bytes, _)) if *f == fi => bytes.extend_from_slice(&gid.to_be_bytes()),
@@ -1011,7 +1103,11 @@ fn paint_text(
             pen += adv.advance;
         }
         for (fi, bytes, sx) in &segs {
-            let tag = if *fi == 0 { b"F1" } else { b"F2" };
+            let tag = if *fi < doc.fonts.len() {
+                doc.fonts[*fi].tag
+            } else {
+                doc.fallback.as_ref().expect("checked").tag
+            };
             content.begin_text();
             content.set_font(Name(tag), px);
             content.set_text_matrix([px, 0.0, 0.0, px, *sx, flip(baseline, ph)]);

@@ -6,25 +6,43 @@
 //! and output is deterministic across machines. Complex-script joining is
 //! best-effort in v0.2; per-font fallback is Step 1b on the roadmap.
 
+use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
 use fontdue::{Font, FontSettings};
-use hikari_core::{font_bytes, hash_bytes, Error, HashCache, ImgFit, Placed};
+use hikari_core::{font_bytes, hash_bytes, Error, FontId, HashCache, ImgFit, Placed, BUILTIN_FONT};
 use tiny_skia::{BlendMode, FillRule, Mask, Paint, PathBuilder, Pixmap, Transform};
 
-static FONT: OnceLock<Font> = OnceLock::new();
+/// `fontdue` faces for every registered `FontId`, built on first use.
+///
+/// Kept separate from the `hikari-core` registry because the parsed types are
+/// different crates' (`fontdue::Font` vs `rustybuzz::Face`). Ids are shared,
+/// bytes are shared, parse trees are not.
+static FACES: OnceLock<Mutex<HashMap<FontId, &'static Font>>> = OnceLock::new();
+
 /// System CJK-capable fallback, loaded lazily and only when a glyph is
-/// missing from the embedded font. Never bundled (proprietary on macOS);
+/// missing from the primary font. Never bundled (proprietary on macOS);
 /// production deployments should ship a subsetted OFL CJK font instead.
 static FALLBACK: OnceLock<Option<Font>> = OnceLock::new();
 
-fn font() -> Result<&'static Font, Error> {
-    if let Some(f) = FONT.get() {
+/// The `fontdue` face for a registered font id, parsed once and cached.
+///
+/// An unknown id falls back to the embedded font so a tree naming a font the
+/// caller forgot to register still renders, just in the wrong typeface.
+fn font(id: FontId) -> Result<&'static Font, Error> {
+    let cache = FACES.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut map = lock_cache(cache);
+    if let Some(f) = map.get(&id) {
         return Ok(f);
     }
-    let f = Font::from_bytes(font_bytes(), FontSettings::default())
-        .map_err(|e| Error::Font(e.to_owned()))?;
-    Ok(FONT.get_or_init(|| f))
+    let bytes = hikari_core::font_entry(id).map_or_else(font_bytes, hikari_core::FontEntry::bytes);
+    let parsed =
+        Font::from_bytes(bytes, FontSettings::default()).map_err(|e| Error::Font(e.to_owned()))?;
+    // `fontdue` copies the bytes it is given, so leaking here only leaks the
+    // handle, and the registry already dedupes identical fonts by content.
+    let leaked: &'static Font = Box::leak(Box::new(parsed));
+    map.insert(id, leaked);
+    Ok(leaked)
 }
 
 fn fallback_font() -> Option<&'static Font> {
@@ -576,19 +594,20 @@ fn lock_cache<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// Which glyph to rasterize, and how to name it in the cache.
 #[derive(Clone, Copy)]
 enum GlyphRef {
-    /// A glyph the shaper already resolved, in the primary font.
-    Id(u16),
+    /// A glyph the shaper already resolved, in the named font.
+    Id(FontId, u16),
     /// A character looked up directly. Only valid for the fallback font,
     /// which never went through the shaper.
     Char(char),
 }
 
 fn rasterize_cached(font_id: u8, font: &Font, glyph: GlyphRef, px: f32) -> GlyphEntry {
-    // Keyed on the shaped glyph id, not the source character: after shaping,
-    // one character can become a ligature glyph and one glyph can stand in for
-    // several characters, so the character is not a stable cache key.
+    // Keyed on the shaped glyph id *and* the font, not the source character:
+    // after shaping, one character can become a ligature glyph, one glyph can
+    // stand in for several characters, and the same id means different glyphs
+    // in different fonts.
     let key = match glyph {
-        GlyphRef::Id(gid) => format!("{font_id}:g{gid}:{}", px.to_bits()),
+        GlyphRef::Id(id, gid) => format!("{font_id}:{id}:g{gid}:{}", px.to_bits()),
         GlyphRef::Char(ch) => format!("{font_id}:c{ch}:{}", px.to_bits()),
     };
     let lock = GLYPHS.get_or_init(|| Mutex::new(HashCache::new()));
@@ -597,7 +616,7 @@ fn rasterize_cached(font_id: u8, font: &Font, glyph: GlyphRef, px: f32) -> Glyph
         return hit.clone();
     }
     let (m, bmp) = match glyph {
-        GlyphRef::Id(gid) => font.rasterize_indexed(gid, px),
+        GlyphRef::Id(_, gid) => font.rasterize_indexed(gid, px),
         GlyphRef::Char(ch) => font.rasterize(ch, px),
     };
     let entry = GlyphEntry {
@@ -634,28 +653,28 @@ fn draw_text(text: &str, node: &Placed, pix: &mut Pixmap, bx: f32, by: f32) -> R
     // Vertically center the block; center each line horizontally (shaped order).
     let mut baseline = by + ((node.h - total_h) / 2.0).max(0.0) + px * 0.9;
     for line in lines {
-        let (advances, total) = shape_text(line, px);
+        let (advances, total) = shape_text(line, px, node.style.font.unwrap_or(BUILTIN_FONT));
         let mut cx = bx + ((node.w - total) / 2.0).max(0.0);
         for adv in advances {
             let draw_x = cx + adv.x_offset;
-            // Per-glyph fallback: embedded font first, system CJK second.
+            // Per-glyph fallback: the node's font first, system CJK second.
             let (font_id, glyph_font) = if adv.missing {
                 match fallback_font().filter(|fb| fb.has_glyph(adv.ch)) {
                     Some(fb) => (1u8, fb),
-                    None => (0, font()?),
+                    None => (0, font(adv.font)?),
                 }
             } else {
-                (0, font()?)
+                (0, font(adv.font)?)
             };
             let mut glyph_adv = adv.advance;
             if adv.ch != ' ' && !adv.ch.is_control() {
-                // The primary font is addressed by the id the shaper chose.
-                // The fallback font never went through the shaper, so it is
-                // addressed by character instead.
+                // The primary font is addressed by the id the shaper chose and
+                // the glyph id it chose there. The fallback font never went
+                // through the shaper, so it is addressed by character instead.
                 let target = if font_id == 1 {
                     GlyphRef::Char(adv.ch)
                 } else {
-                    GlyphRef::Id(adv.gid as u16)
+                    GlyphRef::Id(adv.font, adv.gid as u16)
                 };
                 let g = rasterize_cached(font_id, glyph_font, target, px);
                 if font_id == 1 {

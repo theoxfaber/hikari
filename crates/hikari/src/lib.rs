@@ -10,10 +10,11 @@
 
 pub use hikari_animate::{count_gif_frames, encode_apng, encode_gif, AnimFrame};
 pub use hikari_core::{
-    balance_text, compute_layout, fit_font_size, font_bytes, gradient_line, hash_bytes, hash_node,
-    image_dimensions, line_height, measure_text, paginate, sample_background, shape_text,
-    wrap_text, Align, Background, Color, ColorStop, Display, Error, FlexDir, Flow, HashCache,
-    ImgFit, Justify, Media, Node, Placed, PlacedAdvance, Style,
+    balance_text, builtin_bytes, compute_layout, fit_font_size, font_bytes, font_entry,
+    gradient_line, hash_bytes, hash_node, image_dimensions, line_height, measure_text, paginate,
+    register_font, registered_font_count, sample_background, shape_text, wrap_text, Align,
+    Background, Color, ColorStop, Display, Error, FlexDir, Flow, FontEntry, FontId, HashCache,
+    ImgFit, Justify, Media, Node, Placed, PlacedAdvance, Style, BUILTIN_FONT,
 };
 pub use hikari_license::{Feature, License, LicenseError, Plan};
 pub use hikari_pdf::{

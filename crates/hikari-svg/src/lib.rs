@@ -119,9 +119,20 @@ fn paint(out: &mut String, node: &Placed, dx: f32, dy: f32) {
         };
         let cx = x + node.w / 2.0;
         let cy = y + node.h / 2.0 + fs * 0.35;
+        // Name the font the node actually asked for. SVG resolves the family
+        // by name, so a registered font's name is the only thing that can make
+        // this correct for a caller who supplied their own typeface.
+        let family = node
+            .style
+            .font
+            .and_then(hikari_core::font_entry)
+            .map_or_else(
+                || "DejaVu Sans, sans-serif".to_owned(),
+                |e| format!("{}, sans-serif", e.name),
+            );
         let _ = write!(
             out,
-            r#"<text x="{cx:.1}" y="{cy:.1}" font-size="{fs:.1}" fill="{fill}" text-anchor="middle" font-family="DejaVu Sans, sans-serif">{}</text>"#,
+            r#"<text x="{cx:.1}" y="{cy:.1}" font-size="{fs:.1}" fill="{fill}" text-anchor="middle" font-family="{family}">{}</text>"#,
             esc(text)
         );
     }

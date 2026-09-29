@@ -8,20 +8,17 @@
 
 use std::sync::OnceLock;
 
-use rustybuzz::{Direction, Face, UnicodeBuffer};
+use rustybuzz::{Direction, UnicodeBuffer};
+
+use crate::font::FontId;
 use unicode_bidi::BidiInfo;
 
-/// Embedded font bytes: the build-time subset (see `build.rs`) — the
-/// single source of truth for measurement, rasterization, and PDF.
+/// Embedded font bytes: the build-time subset (see `build.rs`) — the single
+/// source of truth for measurement, rasterization, and PDF. Also registered as
+/// [`crate::BUILTIN_FONT`], which is what the shaping path actually uses.
 #[must_use]
 pub fn font_bytes() -> &'static [u8] {
     include_bytes!(concat!(env!("OUT_DIR"), "/dejavu-subset.ttf"))
-}
-
-static FACE: OnceLock<Face<'static>> = OnceLock::new();
-
-fn face() -> &'static Face<'static> {
-    FACE.get_or_init(|| Face::from_slice(font_bytes(), 0).expect("embedded font parses"))
 }
 
 /// System CJK-capable fallback bytes, loaded lazily. Never bundled
@@ -59,15 +56,21 @@ pub struct PlacedAdvance {
     pub x_offset: f32,
     /// True when the primary font lacks this glyph (fallback needed).
     pub missing: bool,
+    /// Font this advance was shaped with, so paint uses the same face.
+    pub font: FontId,
 }
 
 /// Shape `text` at `px` size. Returns advances in visual order and total width.
 /// Never fails: empty or unshaped input yields zero-width output.
-pub fn shape_text(text: &str, px: f32) -> (Vec<PlacedAdvance>, f32) {
+pub fn shape_text(text: &str, px: f32, font: FontId) -> (Vec<PlacedAdvance>, f32) {
     if text.is_empty() || px <= 0.0 {
         return (Vec::new(), 0.0);
     }
-    let upem = face().units_per_em() as f32;
+    // Resolve through `hb_face` so an unregistered id falls back to the
+    // embedded font here exactly as it does in the rasterizer. Reading upem
+    // from the raw registry entry instead would give 0.0 and silently shape
+    // nothing at all, which is a different behaviour from every other backend.
+    let upem = crate::font::hb_face(font).units_per_em() as f32;
     if upem <= 0.0 {
         return (Vec::new(), 0.0);
     }
@@ -76,7 +79,7 @@ pub fn shape_text(text: &str, px: f32) -> (Vec<PlacedAdvance>, f32) {
     let mut out = Vec::new();
     let mut total = 0.0;
     for (run_text, rtl) in visual_runs(line) {
-        let (mut adv, w) = shape_run(&run_text, rtl, px);
+        let (mut adv, w) = shape_run(&run_text, rtl, px, font);
         out.append(&mut adv);
         total += w;
     }
@@ -85,14 +88,14 @@ pub fn shape_text(text: &str, px: f32) -> (Vec<PlacedAdvance>, f32) {
 
 /// Measure `(width, height)` for possibly-multiline text at `px`.
 #[must_use]
-pub fn measure_text(text: &str, px: f32) -> (f32, f32) {
+pub fn measure_text(text: &str, px: f32, font: FontId) -> (f32, f32) {
     if text.is_empty() {
         return (0.0, line_height(px));
     }
     let mut w: f32 = 0.0;
     let mut lines = 0;
     for line in text.split('\n') {
-        let (_, lw) = shape_text(line, px);
+        let (_, lw) = shape_text(line, px, font);
         w = w.max(lw);
         lines += 1;
     }
@@ -103,11 +106,11 @@ pub fn measure_text(text: &str, px: f32) -> (f32, f32) {
 /// `\n`. Words wider than `max_w` are hard-split by char. Pure function —
 /// layout and paint call the same code so they agree exactly.
 #[must_use]
-pub fn wrap_text(text: &str, px: f32, max_w: f32) -> String {
+pub fn wrap_text(text: &str, px: f32, max_w: f32, font: FontId) -> String {
     if max_w <= 0.0 {
         return text.to_owned();
     }
-    let space_w = shape_text(" ", px).1.max(1.0);
+    let space_w = shape_text(" ", px, font).1.max(1.0);
     let mut out = Vec::new();
     for para in text.split('\n') {
         if para.is_empty() {
@@ -117,7 +120,7 @@ pub fn wrap_text(text: &str, px: f32, max_w: f32) -> String {
         let mut line = String::new();
         let mut line_w = 0.0;
         for word in para.split_whitespace() {
-            let (_, ww) = shape_text(word, px);
+            let (_, ww) = shape_text(word, px, font);
             let add = if line.is_empty() { ww } else { space_w + ww };
             if line_w + add <= max_w || line.is_empty() {
                 if !line.is_empty() {
@@ -129,7 +132,7 @@ pub fn wrap_text(text: &str, px: f32, max_w: f32) -> String {
                     let mut cur = String::new();
                     let mut cur_w = 0.0;
                     for ch in word.chars() {
-                        let (_, cw) = shape_text(&ch.to_string(), px);
+                        let (_, cw) = shape_text(&ch.to_string(), px, font);
                         if cur_w + cw > max_w && !cur.is_empty() {
                             out.push(cur);
                             cur = String::new();
@@ -159,7 +162,7 @@ pub fn wrap_text(text: &str, px: f32, max_w: f32) -> String {
 /// `max_w` x `max_h`, searching down from `max_px` (floor 4px).
 /// Headline `text-fit` without a measure loop on the caller's side.
 #[must_use]
-pub fn fit_font_size(text: &str, max_w: f32, max_h: f32, max_px: f32) -> f32 {
+pub fn fit_font_size(text: &str, max_w: f32, max_h: f32, max_px: f32, font: FontId) -> f32 {
     if max_w <= 0.0 || max_h <= 0.0 {
         return 4.0;
     }
@@ -167,8 +170,8 @@ pub fn fit_font_size(text: &str, max_w: f32, max_h: f32, max_px: f32) -> f32 {
     let mut hi = max_px.max(lo);
     for _ in 0..16 {
         let mid = (lo + hi) / 2.0;
-        let laid = wrap_text(text, mid, max_w);
-        let (w, h) = measure_text(&laid, mid);
+        let laid = wrap_text(text, mid, max_w, font);
+        let (w, h) = measure_text(&laid, mid, font);
         if w <= max_w && h <= max_h {
             lo = mid;
         } else {
@@ -183,14 +186,14 @@ pub fn fit_font_size(text: &str, max_w: f32, max_h: f32, max_px: f32) -> f32 {
 /// Returns the reflowed text with `\n` breaks; over-long single words are
 /// left to overflow (callers can pre-split via [`wrap_text`]).
 #[must_use]
-pub fn balance_text(text: &str, px: f32, max_w: f32) -> String {
+pub fn balance_text(text: &str, px: f32, max_w: f32, font: FontId) -> String {
     let words: Vec<&str> = text.split_whitespace().collect();
     if words.len() < 2 {
         return text.to_owned();
     }
     // Width of words[i..j] joined by spaces.
     let width = |i: usize, j: usize| {
-        let (_, w) = shape_text(&words[i..j].join(" "), px);
+        let (_, w) = shape_text(&words[i..j].join(" "), px, font);
         w
     };
     // dp[i] = (best max width, fewest lines) for suffix starting at i.
@@ -248,11 +251,12 @@ fn visual_runs(line: &str) -> Vec<(String, bool)> {
     runs
 }
 
-fn shape_run(run: &str, rtl: bool, px: f32) -> (Vec<PlacedAdvance>, f32) {
+fn shape_run(run: &str, rtl: bool, px: f32, font: FontId) -> (Vec<PlacedAdvance>, f32) {
     if run.is_empty() {
         return (Vec::new(), 0.0);
     }
-    let scale = px / face().units_per_em() as f32;
+    let face = crate::font::hb_face(font);
+    let scale = px / face.units_per_em() as f32;
     // Byte-index -> char map (rustybuzz clusters are byte indices).
     let index: Vec<(usize, char)> = run.char_indices().collect();
     let char_at = |byte_idx: usize| -> char {
@@ -273,7 +277,7 @@ fn shape_run(run: &str, rtl: bool, px: f32) -> (Vec<PlacedAdvance>, f32) {
     } else {
         Direction::LeftToRight
     });
-    let output = rustybuzz::shape(face(), &[], buf);
+    let output = rustybuzz::shape(face, &[], buf);
     let infos = output.glyph_infos();
     let positions = output.glyph_positions();
     let mut total = 0.0;
@@ -304,6 +308,7 @@ fn shape_run(run: &str, rtl: bool, px: f32) -> (Vec<PlacedAdvance>, f32) {
                 advance: advance.max(0.0),
                 x_offset: pos.x_offset as f32 * scale,
                 missing,
+                font,
             }
         })
         .collect();
@@ -322,22 +327,23 @@ fn is_wide(ch: char) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::font::BUILTIN_FONT;
 
     #[test]
     fn advances_scale_linearly() {
-        let (_, w36) = shape_text("Hello from Hikari", 36.0);
-        let (_, w72) = shape_text("Hello from Hikari", 72.0);
+        let (_, w36) = shape_text("Hello from Hikari", 36.0, BUILTIN_FONT);
+        let (_, w72) = shape_text("Hello from Hikari", 72.0, BUILTIN_FONT);
         assert!(w36 > 50.0, "w36={w36}");
         assert!((w72 / w36 - 2.0).abs() < 0.05, "w36={w36} w72={w72}");
     }
 
     #[test]
     fn rtl_and_cjk_shape_without_panic() {
-        let (adv_he, w_he) = shape_text("שלום", 48.0);
+        let (adv_he, w_he) = shape_text("שלום", 48.0, BUILTIN_FONT);
         assert!(!adv_he.is_empty() && w_he > 0.0);
-        let (adv_ar, w_ar) = shape_text("مرحبا", 48.0);
+        let (adv_ar, w_ar) = shape_text("مرحبا", 48.0, BUILTIN_FONT);
         assert!(!adv_ar.is_empty() && w_ar > 0.0);
-        let (adv_cjk, w_cjk) = shape_text("日本語", 48.0);
+        let (adv_cjk, w_cjk) = shape_text("日本語", 48.0, BUILTIN_FONT);
         assert!(!adv_cjk.is_empty() && w_cjk > 0.0);
     }
 
@@ -346,10 +352,13 @@ mod tests {
         let text = "Hello beautiful wide world today";
         let px = 40.0;
         let max_w = 300.0;
-        let balanced = balance_text(text, px, max_w);
-        let greedy = wrap_text(text, px, max_w);
+        let balanced = balance_text(text, px, max_w, BUILTIN_FONT);
+        let greedy = wrap_text(text, px, max_w, BUILTIN_FONT);
         let stats = |t: &str| {
-            let ws: Vec<f32> = t.split('\n').map(|l| shape_text(l, px).1).collect();
+            let ws: Vec<f32> = t
+                .split('\n')
+                .map(|l| shape_text(l, px, BUILTIN_FONT).1)
+                .collect();
             let max = ws.iter().fold(0.0_f32, |a, b| a.max(*b));
             let min = ws.iter().fold(f32::INFINITY, |a, b| a.min(*b));
             (max, max - min, ws.len())
@@ -361,27 +370,30 @@ mod tests {
         assert!(beven <= geven + 0.01, "{balanced} vs {greedy}");
         // Every balanced line respects the width.
         for line in balanced.split('\n') {
-            assert!(shape_text(line, px).1 <= max_w + 0.01, "{line}");
+            assert!(
+                shape_text(line, px, BUILTIN_FONT).1 <= max_w + 0.01,
+                "{line}"
+            );
         }
     }
 
     #[test]
     fn fit_finds_largest_fitting_size() {
-        let size = fit_font_size("Hello Hikari", 400.0, 100.0, 200.0);
+        let size = fit_font_size("Hello Hikari", 400.0, 100.0, 200.0, BUILTIN_FONT);
         assert!(size > 4.0 && size <= 200.0);
-        let laid = wrap_text("Hello Hikari", size, 400.0);
-        let (w, h) = measure_text(&laid, size);
+        let laid = wrap_text("Hello Hikari", size, 400.0, BUILTIN_FONT);
+        let (w, h) = measure_text(&laid, size, BUILTIN_FONT);
         assert!(w <= 400.0 && h <= 100.0);
         // One step bigger overflows some dimension (search converged).
-        let laid2 = wrap_text("Hello Hikari", size + 2.0, 400.0);
-        let (w2, h2) = measure_text(&laid2, size + 2.0);
+        let laid2 = wrap_text("Hello Hikari", size + 2.0, 400.0, BUILTIN_FONT);
+        let (w2, h2) = measure_text(&laid2, size + 2.0, BUILTIN_FONT);
         assert!(w2 > 400.0 || h2 > 100.0 || size + 2.0 > 200.0);
     }
 
     #[test]
     fn multiline_measure_stacks() {
-        let (w1, h1) = measure_text("abc", 40.0);
-        let (w2, h2) = measure_text("abc\nabc", 40.0);
+        let (w1, h1) = measure_text("abc", 40.0, BUILTIN_FONT);
+        let (w2, h2) = measure_text("abc\nabc", 40.0, BUILTIN_FONT);
         assert!((w2 - w1).abs() < 0.01);
         assert!((h2 - 2.0 * h1).abs() < 0.01);
     }

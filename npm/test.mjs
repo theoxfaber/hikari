@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 import assert from 'node:assert/strict';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 
 const require = createRequire(import.meta.url);
 const hk = require('./hikari-node.node');
@@ -15,7 +15,15 @@ const outDir = process.env.HIKARI_EXAMPLE_OUT
 // separate for a while and the wrapper quietly omitted renderWebpSync, which
 // nothing caught because every test loaded ./hikari-node.node directly.
 const wrapper = require('./index.js');
-for (const name of ['renderPngSync', 'renderSvgSync', 'renderWebpSync', 'renderPdfSync', 'version']) {
+for (const name of [
+  'renderPngSync',
+  'renderSvgSync',
+  'renderWebpSync',
+  'renderPdfSync',
+  'registerFont',
+  'registeredFontCount',
+  'version',
+]) {
   assert.equal(typeof wrapper[name], 'function', `index.js must export ${name}`);
 }
 assert.equal(
@@ -91,6 +99,32 @@ assert.equal(png[0], 0x89, 'PNG magic');
 assert.equal(png[1], 0x50, 'PNG magic');
 assert.ok(png.length > 5000, `png size ${png.length}`);
 writeFileSync(`${outDir}/og-node.png`, png);
+
+// Custom font registration: idempotent on content, and a registered font must
+// actually change the render rather than being silently ignored.
+const fontBytes = readFileSync('/System/Library/Fonts/Supplemental/Georgia.ttf');
+const fontId = hk.registerFont('Brand', fontBytes);
+assert.equal(typeof fontId, 'number', 'registerFont returns an id');
+assert.equal(hk.registerFont('Brand again', fontBytes), fontId, 'same bytes -> same id');
+assert.ok(hk.registeredFontCount() >= 2, 'embedded + registered');
+
+const withFont = JSON.stringify({
+  Container: {
+    style: { width: 1200, height: 630, background: '#0b1020', font: fontId },
+    children: [
+      { Text: { text: 'Brand font from Node', style: { font_size: 72, color: '#ffffff' } } },
+    ],
+  },
+});
+const customPng = hk.renderPngSync(withFont, 1200, 630);
+assert.ok(customPng.length > 2000, `custom-font png size ${customPng.length}`);
+assert.notDeepEqual(
+  Buffer.from(customPng),
+  png,
+  'a registered font produced identical output to the built-in',
+);
+const customSvg = hk.renderSvgSync(withFont, 1200, 630);
+assert.ok(customSvg.includes('Brand'), `SVG names the family: ${customSvg}`);
 
 const svg = hk.renderSvgSync(tree, 1200, 630);
 assert.ok(svg.startsWith('<svg'), 'svg root');

@@ -25,6 +25,25 @@ pub fn version() -> String {
     env!("CARGO_PKG_VERSION").to_owned()
 }
 
+/// Register font bytes and return an id to put in a node's `font` field.
+///
+/// Idempotent on content: registering the same bytes twice returns the existing
+/// id, and a server that re-registers its brand font on every request leaks
+/// nothing. The `name` is used for PDF and SVG output; lookup is by id.
+///
+/// The returned id is process-global and valid for the life of the process,
+/// so register once at startup rather than per render.
+#[napi]
+pub fn register_font(name: String, bytes: Buffer) -> napi::Result<u32> {
+    hikari::register_font(&name, bytes.as_ref()).map_err(render_err)
+}
+
+/// Number of distinct fonts registered, including the embedded one.
+#[napi]
+pub fn registered_font_count() -> u32 {
+    hikari::registered_font_count() as u32
+}
+
 /// Render a node-tree JSON document to PNG bytes.
 #[napi]
 pub fn render_png_sync(tree_json: String, width: u32, height: u32) -> napi::Result<Buffer> {

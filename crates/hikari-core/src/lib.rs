@@ -7,7 +7,13 @@
 mod cache;
 mod error;
 mod flow;
+mod font;
 mod shape;
+
+pub use font::{
+    builtin_bytes, font_entry, hb_face, register_font, registered_font_count, FontEntry, FontId,
+    BUILTIN_FONT,
+};
 
 #[cfg(test)]
 mod font_subset_tests;
@@ -434,6 +440,14 @@ pub struct Style {
     /// Font size in px.
     #[serde(default)]
     pub font_size: Option<f32>,
+
+    /// Font to shape and paint this node with, as a [`FontId`] returned by
+    /// [`register_font`]. `None` uses the embedded font.
+    ///
+    /// Serialized as a plain number so a tree round-trips through the Node and
+    /// WASM bindings unchanged: register the font once, then put the id here.
+    #[serde(default)]
+    pub font: Option<FontId>,
     /// Border radius in px.
     #[serde(default)]
     pub radius: f32,
@@ -483,6 +497,7 @@ impl Default for Style {
             background: None,
             color: None,
             font_size: None,
+            font: None,
             radius: 0.0,
             grow: 0.0,
             bookmark: None,
@@ -713,6 +728,13 @@ impl Style {
         self
     }
 
+    /// Set the font to shape and paint with, by id from [`register_font`].
+    #[must_use]
+    pub fn with_font(mut self, font: FontId) -> Self {
+        self.font = Some(font);
+        self
+    }
+
     /// Paint text glyphs with the background fill instead of `color`
     /// (`background-clip: text`; needs a background to sample from).
     #[must_use]
@@ -736,11 +758,12 @@ impl Style {
         let (mut w, mut h) = (dim(self.width), dim(self.height));
         if let Some(t) = text {
             let fs = self.font_size.unwrap_or(16.0);
+            let font = self.font.unwrap_or(BUILTIN_FONT);
             let laid = match self.max_width {
-                Some(mw) => wrap_text(t, fs, mw),
+                Some(mw) => wrap_text(t, fs, mw, font),
                 None => t.to_owned(),
             };
-            let (mw, mh) = measure_text(&laid, fs);
+            let (mw, mh) = measure_text(&laid, fs, font);
             if self.width.is_none() {
                 w = Dimension::length(mw.max(1.0));
             }
@@ -964,7 +987,7 @@ pub fn image_dimensions(bytes: &[u8]) -> Result<(u32, u32), Error> {
 /// Compute flex layout for `tree` inside `viewport_w` x `viewport_h`.
 pub fn compute_layout(tree: &Node, viewport_w: f32, viewport_h: f32) -> Result<Placed, Error> {
     let mut taffy: TaffyTree<()> = TaffyTree::new();
-    let root_id = build_taffy(tree, &mut taffy)?;
+    let root_id = build_taffy(tree, &mut taffy, BUILTIN_FONT)?;
     taffy.compute_layout(
         root_id,
         Size {
@@ -972,27 +995,48 @@ pub fn compute_layout(tree: &Node, viewport_w: f32, viewport_h: f32) -> Result<P
             height: AvailableSpace::Definite(viewport_h),
         },
     )?;
-    read_back(tree, &taffy, root_id)
+    read_back(tree, &taffy, root_id, BUILTIN_FONT)
 }
 
-fn build_taffy(node: &Node, taffy: &mut TaffyTree<()>) -> Result<taffy::NodeId, Error> {
+fn build_taffy(
+    node: &Node,
+    taffy: &mut TaffyTree<()>,
+    inherited_font: FontId,
+) -> Result<taffy::NodeId, Error> {
     match node {
         Node::Container { style, children } => {
+            let font = style.font.unwrap_or(inherited_font);
             let ids = children
                 .iter()
-                .map(|c| build_taffy(c, taffy))
+                .map(|c| build_taffy(c, taffy, font))
                 .collect::<Result<Vec<_>, _>>()?;
-            Ok(taffy.new_with_children(style.to_taffy(None, None), &ids)?)
+            Ok(
+                taffy
+                    .new_with_children(style.clone().with_font(font).to_taffy(None, None), &ids)?,
+            )
         }
-        Node::Text { text, style } => Ok(taffy.new_leaf(style.to_taffy(Some(text), None))?),
+        Node::Text { text, style } => {
+            let style = style
+                .clone()
+                .with_font(style.font.unwrap_or(inherited_font));
+            Ok(taffy.new_leaf(style.to_taffy(Some(text), None))?)
+        }
         Node::Image { bytes, style, .. } => {
             let dims = image_dimensions(bytes).ok();
+            let style = style
+                .clone()
+                .with_font(style.font.unwrap_or(inherited_font));
             Ok(taffy.new_leaf(style.to_taffy(None, dims))?)
         }
     }
 }
 
-fn read_back(node: &Node, taffy: &TaffyTree<()>, id: taffy::NodeId) -> Result<Placed, Error> {
+fn read_back(
+    node: &Node,
+    taffy: &TaffyTree<()>,
+    id: taffy::NodeId,
+    inherited_font: FontId,
+) -> Result<Placed, Error> {
     // Layout failures propagate as `Error` rather than panicking. This runs on
     // untrusted input from the Node/WASM bindings, and unwinding across the FFI
     // boundary is undefined behaviour.
@@ -1000,21 +1044,32 @@ fn read_back(node: &Node, taffy: &TaffyTree<()>, id: taffy::NodeId) -> Result<Pl
     let (style, text, link, media, kids) = match node {
         Node::Container { style, children } => {
             let child_ids = taffy.children(id)?;
+            let font = style.font.unwrap_or(inherited_font);
             let placed = children
                 .iter()
                 .zip(child_ids)
-                .map(|(c, cid)| read_back(c, taffy, cid))
+                .map(|(c, cid)| read_back(c, taffy, cid, font))
                 .collect::<Result<Vec<_>, _>>()?;
-            (style.clone(), None, style.link.clone(), None, placed)
+            (
+                style.clone().with_font(font),
+                None,
+                style.link.clone(),
+                None,
+                placed,
+            )
         }
         Node::Text { text, style } => {
             // Store the wrapped text so paint wraps identically to layout.
+            // `BUILTIN_FONT` rather than `inherited_font`: `build_taffy` already
+            // wrote the resolved font onto this node's style, so an unset value
+            // here means the caller genuinely did not set one.
+            let font = style.font.unwrap_or(inherited_font);
             let laid = match style.max_width {
-                Some(mw) => wrap_text(text, style.font_size.unwrap_or(16.0), mw),
+                Some(mw) => wrap_text(text, style.font_size.unwrap_or(16.0), mw, font),
                 None => text.clone(),
             };
             (
-                style.clone(),
+                style.clone().with_font(font),
                 Some(laid),
                 style.link.clone(),
                 None,
@@ -1236,7 +1291,7 @@ mod tests {
     #[test]
     fn text_wraps_at_max_width() {
         let text = "hello world foo bar";
-        let wrapped = wrap_text(text, 32.0, 120.0);
+        let wrapped = wrap_text(text, 32.0, 120.0, BUILTIN_FONT);
         assert!(wrapped.contains('\n'), "{wrapped}");
         let style = Style::text(32.0, "#fff").with_max_width(120.0);
         let tree = Node::container(

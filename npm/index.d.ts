@@ -51,6 +51,13 @@ export interface Style {
    */
   color?: Rgba | null;
   font_size?: number | null;
+  /**
+   * Font id from `registerFont`, or `0`/omitted for the embedded font.
+   *
+   * Inherited by descendant nodes, so setting it once on a card root applies
+   * to every text run inside it.
+   */
+  font?: number;
   radius?: number;
   grow?: number;
   grid_cols?: number | null;
@@ -66,6 +73,16 @@ export type Node =
 export interface HikariNode {
   /** Semver string of the native binding. */
   version(): string;
+  /**
+   * Register font bytes, returning an id for a node's `font` field.
+   *
+   * Idempotent on content: the same bytes return the same id, so registering a
+   * brand font once at startup is enough. `name` is used for SVG output; lookup
+   * is by id. Ids are valid for the life of the process.
+   */
+  registerFont(name: string, bytes: Buffer | Uint8Array): number;
+  /** Distinct fonts registered, including the embedded one. */
+  registeredFontCount(): number;
   /** Render a node tree to PNG bytes. */
   renderPngSync(treeJson: string, width: number, height: number): Buffer;
   /** Render a node tree to an SVG string. */

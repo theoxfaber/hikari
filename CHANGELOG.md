@@ -3,6 +3,41 @@
 All notable changes to Hikari. Versions match the workspace `version` and
 the `hikari-rs` facade crate.
 
+## v0.19.0 — caller-supplied fonts
+
+### Added
+- **`register_font(name, bytes) -> FontId`.** Rendering in a brand typeface is
+  the normal case for social images, and until now the embedded DejaVu subset was
+  the only font the Rust, PDF, SVG, Node and WASM paths would use. Exposed as
+  `registerFont` in Node and `register_font` in WASM.
+- `Style::with_font` / `Style::font`, **inherited by descendants**. Setting a
+  font once on a card root applies to every text run inside it; paint never
+  walks ancestors because layout writes the resolved id onto each node.
+- `font_entry`, `registered_font_count`, `builtin_bytes` and `BUILTIN_FONT`
+  re-exported from the facade.
+- `cargo run --example custom_font` renders the same card in two typefaces.
+
+### Design notes
+- Registration is keyed on the SHA-256 of the font bytes, so the same font
+  registered twice returns the same id and does no work. That is what makes the
+  leak-once-per-distinct-font lifetime strategy safe for a server that
+  re-registers its brand font on every request.
+- The glyph cache is keyed on `(font id, glyph id)` rather than the source
+  character. The same glyph id means different glyphs in different fonts, so the
+  character was never a sufficient key once more than one font could be used.
+- `shape_text`, `measure_text`, `wrap_text`, `fit_font_size` and `balance_text`
+  all take a `FontId`. This is a breaking API change, and deliberately so: a
+  default argument would have let the paint path and the measure path disagree
+  about the typeface, which is the exact class of bug the glyph-id fix in v0.18
+  removed.
+- The PDF backend holds a dynamic font list keyed by `FontId` and emits one
+  resource block per font used, instead of a fixed primary/fallback pair.
+
+### Behaviour worth knowing
+- An unregistered font id degrades to the embedded font rather than failing.
+  Font ids arrive from untrusted JSON in the bindings, and a tree naming a font
+  the caller forgot to register should still produce an image.
+
 ## v0.18.0 — correct text shaping, publish-ready, docs site
 
 ### Fixed: the embedded font had no shaping tables
@@ -91,10 +126,6 @@ kerns, and Arabic and Persian join into connected letterforms.
   unfinished. The README now describes what CI actually does.
 
 ### Known gaps
-- **No custom font loading.** The embedded DejaVu subset is the only font the
-  Rust, PDF, SVG, Node and WASM paths will use. For an OG-image generator this
-  is the most limiting gap in the project and it gates adoption more than any
-  other item on the roadmap.
 - **`rustybuzz` and `ttf-parser` are both declared unmaintained**
   (RUSTSEC-2026-0206, RUSTSEC-2026-0192). The shaper sits in the most critical
   path in the project, so this is the top item on the roadmap. `cargo deny`
