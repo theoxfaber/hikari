@@ -1,0 +1,32 @@
+[package]
+name = "hikari-rs-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Layout, shaping, and content-hash caching for the Hikari render engine."
+keywords = ["rendering", "layout", "text"]
+categories = ["multimedia"]
+repository = "https://github.com/theoxfaber/hikari"
+homepage = "https://theoxfaber.github.io/hikari"
+
+[lib]
+name = "hikari_core"
+
+[dependencies]
+taffy.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+hex.workspace = true
+thiserror.workspace = true
+rustybuzz.workspace = true
+unicode-bidi.workspace = true
+ttf-parser = { version = "0.21" }
+image.workspace = true
+
+[build-dependencies]
+allsorts.workspace = true
+ttf-parser = { version = "0.21" }
+
+[lints]
+workspace = true

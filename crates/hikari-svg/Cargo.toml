@@ -1,0 +1,20 @@
+[package]
+name = "hikari-rs-svg"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "SVG backend for Hikari layout trees."
+keywords = ["rendering", "svg"]
+categories = ["multimedia"]
+repository = "https://github.com/theoxfaber/hikari"
+homepage = "https://theoxfaber.github.io/hikari"
+
+[lib]
+name = "hikari_svg"
+
+[dependencies]
+hikari-rs-core.workspace = true
+base64.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,22 @@
+[package]
+name = "hikari-rs-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "WebAssembly bindings for the Hikari render engine."
+keywords = ["rendering", "wasm", "web"]
+categories = ["multimedia"]
+repository = "https://github.com/theoxfaber/hikari"
+homepage = "https://theoxfaber.github.io/hikari"
+
+[lib]
+name = "hikari_wasm"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+hikari-rs.workspace = true
+wasm-bindgen.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

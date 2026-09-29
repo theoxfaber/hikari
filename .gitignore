@@ -1,0 +1,13 @@
+target/
+dist/
+node_modules/
+*.png
+*.webp
+*.svg
+!assets/*.svg
+# Generated WASM artifacts (rebuild with the command in README > WebAssembly).
+wasm/*.wasm
+wasm/hikari_wasm.js
+wasm/*.d.ts
+npm/*.node
+npm/og-node.png

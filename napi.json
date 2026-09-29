@@ -1,0 +1,17 @@
+{
+  "$schema": "https://raw.githubusercontent.com/napi-rs/napi-rs/main/cli/schema.json",
+  "binaryName": "hikari-node",
+  "packageName": "@hikari-rs/node",
+  "targets": [
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-unknown-linux-musl",
+    "aarch64-unknown-linux-musl"
+  ],
+  "npmDir": "npm",
+  "manifestPath": "crates/hikari-node/Cargo.toml",
+  "name": "hikari-node"
+}

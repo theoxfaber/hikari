@@ -1,0 +1,36 @@
+[package]
+name = "hikari-rs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Render OG images, SVG, animations, and PDFs from layout trees. No browser."
+keywords = ["rendering", "og-image", "pdf", "wasm"]
+categories = ["multimedia"]
+repository = "https://github.com/theoxfaber/hikari"
+homepage = "https://theoxfaber.github.io/hikari"
+
+[lib]
+name = "hikari"
+
+[dependencies]
+hikari-rs-core.workspace = true
+hikari-rs-raster.workspace = true
+hikari-rs-svg.workspace = true
+hikari-rs-animate.workspace = true
+hikari-rs-license.workspace = true
+hikari-rs-pdf.workspace = true
+rayon.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+image.workspace = true
+ed25519-dalek.workspace = true
+fontdue.workspace = true
+rustybuzz.workspace = true
+
+[[bench]]
+name = "render"
+harness = false
+
+[lints]
+workspace = true

@@ -1,0 +1,24 @@
+[package]
+name = "hikari-rs-pdf"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "PDF backend for Hikari: selectable text, subset fonts, outlines."
+keywords = ["rendering", "pdf"]
+categories = ["multimedia"]
+repository = "https://github.com/theoxfaber/hikari"
+homepage = "https://theoxfaber.github.io/hikari"
+
+[lib]
+name = "hikari_pdf"
+
+[dependencies]
+hikari-rs-core.workspace = true
+pdf-writer.workspace = true
+flate2.workspace = true
+image.workspace = true
+ttf-parser = { version = "0.21" }
+allsorts.workspace = true
+
+[lints]
+workspace = true

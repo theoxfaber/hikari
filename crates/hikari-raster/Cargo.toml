@@ -1,0 +1,29 @@
+[package]
+name = "hikari-rs-raster"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "CPU raster backend for Hikari: PNG, WebP, GIF frames via tiny-skia."
+keywords = ["rendering", "png", "fonts"]
+categories = ["multimedia"]
+repository = "https://github.com/theoxfaber/hikari"
+homepage = "https://theoxfaber.github.io/hikari"
+
+[lib]
+name = "hikari_raster"
+
+[dependencies]
+hikari-rs-core.workspace = true
+tiny-skia.workspace = true
+fontdue.workspace = true
+image.workspace = true
+
+# zlib-rs (SIMD) on native for encode speed; pure-Rust backend on wasm.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+flate2 = { version = "1", default-features = false, features = ["rust_backend", "zlib-rs"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+
+[lints]
+workspace = true

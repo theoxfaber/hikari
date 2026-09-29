@@ -1,0 +1,14 @@
+{
+  "name": "@hikari-rs/node",
+  "version": "0.7.0",
+  "description": "Render OG images, SVG, and PDFs from layout trees. No browser.",
+  "license": "MIT",
+  "main": "./hikari-node.node",
+  "types": "./index.d.ts",
+  "files": ["hikari-node.node", "index.d.ts", "index.js"],
+  "repository": "https://github.com/example/hikari",
+  "scripts": {
+    "test": "node test.mjs",
+    "build": "cargo build --release -p hikari-node && cp ../target/release/libhikari_node.dylib ./hikari-node.node"
+  }
+}

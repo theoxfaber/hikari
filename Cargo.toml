@@ -1,0 +1,84 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/hikari-core",
+  "crates/hikari-raster",
+  "crates/hikari-svg",
+  "crates/hikari-animate",
+  "crates/hikari-license",
+  "crates/hikari-pdf",
+  "crates/hikari-node",
+  "crates/hikari-wasm",
+  "crates/hikari",
+]
+default-members = [
+  "crates/hikari-core",
+  "crates/hikari-raster",
+  "crates/hikari-svg",
+  "crates/hikari-animate",
+  "crates/hikari-license",
+  "crates/hikari-pdf",
+  "crates/hikari-node",
+  "crates/hikari-wasm",
+  "crates/hikari",
+]
+
+[workspace.package]
+version = "0.17.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/example/hikari"
+rust-version = "1.78"
+
+[workspace.dependencies]
+hikari-rs-core = { path = "crates/hikari-core", version = "0.17.0" }
+hikari-rs-raster = { path = "crates/hikari-raster", version = "0.17.0" }
+hikari-rs-svg = { path = "crates/hikari-svg", version = "0.17.0" }
+hikari-rs-animate = { path = "crates/hikari-animate", version = "0.17.0" }
+hikari-rs-license = { path = "crates/hikari-license", version = "0.17.0" }
+hikari-rs-pdf = { path = "crates/hikari-pdf", version = "0.17.0" }
+hikari-rs-node = { path = "crates/hikari-node", version = "0.17.0" }
+hikari-rs-wasm = { path = "crates/hikari-wasm", version = "0.17.0" }
+hikari-rs = { path = "crates/hikari", version = "0.17.0" }
+wasm-bindgen = { version = "0.2" }
+
+taffy = { version = "0.9", default-features = false, features = ["std", "taffy_tree", "flexbox", "grid", "block_layout", "calc", "alloc"] }
+tiny-skia = { version = "0.11", default-features = false, features = ["std", "simd", "png-format"] }
+fontdue = { version = "0.8" }
+rustybuzz = { version = "0.14" }
+unicode-bidi = { version = "0.3" }
+base64 = { version = "0.22" }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+png = { version = "0.18", default-features = false }
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+pdf-writer = { version = "0.12" }
+allsorts = { version = "0.17", default-features = false, features = ["flate2_rust"] }
+napi = { version = "2", default-features = false, features = ["napi4"] }
+napi-derive = { version = "2" }
+ed25519-dalek = { version = "2" }
+sha2 = "0.10"
+hex = "0.4"
+rayon = "1.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+criterion = "0.5"
+
+[workspace.lints.clippy]
+all = "deny"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[profile.release]
+strip = true
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+# Size-first WASM profile: no per-crate hacks, single policy.
+[profile.wasm-release]
+inherits = "release"
+opt-level = "s"
+strip = "debuginfo"

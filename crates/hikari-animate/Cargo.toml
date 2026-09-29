@@ -1,0 +1,21 @@
+[package]
+name = "hikari-rs-animate"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "GIF and APNG animation encoders for Hikari frames."
+keywords = ["rendering", "animation", "gif"]
+categories = ["multimedia"]
+repository = "https://github.com/theoxfaber/hikari"
+homepage = "https://theoxfaber.github.io/hikari"
+
+[lib]
+name = "hikari_animate"
+
+[dependencies]
+hikari-rs-core.workspace = true
+image.workspace = true
+png.workspace = true
+
+[lints]
+workspace = true
