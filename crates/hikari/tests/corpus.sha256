@@ -1,0 +1,22 @@
+# Golden digests for the feature corpus. Blessed by
+#   cargo run --release -p hikari-rs --example corpus -- --bless
+# One case per capability, so a regression names the feature that moved
+# rather than hiding inside one opaque image. Cross-platform byte
+# determinism is what makes these meaningful; see BENCHMARKS.md.
+gradient-linear 13666 d5f1564b984a3473909ffac5501799884a8d7c38b0bc8f259d5c7db9cc628384 # linear gradient angle and stop interpolation
+gradient-radial 100475 309f045f659358ee49766fa11510744653a3f10e07ff85cf63a510e958e8bb32 # radial gradient center, radius and stops
+border-radius 6567 436ef7602088c9bb260b203ceb1195ad84aa2dba637afab89b16498ee5c080c6 # corner rounding and border width
+box-shadow 14058 51d253137876110a97d6f276aa5b505f7a9cc0fa658dbdeb2ce4c66d5716c6c6 # shadow offset, blur radius and spread
+grid-layout 5393 ae2ecf90f4d52564297d32976611577a75d8f3a2830b25461558d86c979745b7 # equal-column grid, gap and padding
+flex-justify-align 1503 84c0683f9ee91ed1a8e3ddf7886bb0e283c38fea05e189d20988a463a5429401 # main and cross axis distribution
+word-wrap 25446 af456653f7346087755e2656d54606402253519e9c2b0ada18ec2d41b321490d # greedy wrapping at max_width
+text-clip-gradient 15928 80c52137e8abb9356f3c078f6e383d1039db5d64f81be6cabd8ddcde5f567064 # background-clip: text through glyphs
+latin-typography 12905 554bf3a8a4f8581c505ed4c04478834640da21cc231cba35035ecdeae9bacc4f # kerning, ligatures and Latin metrics
+arabic-joining 6838 7d3e1368de4a026380e859375c6a2d74cfa2d103e68285dd0bfc48bd2be08731 # Arabic contextual joining through GSUB
+hebrew-rtl 5413 b462c7ae87db3c2a5ecad39917139bcd4505ed6095171a0dbaff5de9063ee730 # right-to-left ordering and Hebrew coverage
+mixed-direction 8576 f5173fb5db320fba455301a161d55c8b47454e743838e5b0c223ccecbcde28d1 # bidi run splitting across a directional boundary
+image-clipped 6686 5489ca54cb07dd8608f9eaf6a05d55e932ce0641c6463b372808b7f6f4631c78 # image decode, sizing and rounded clip
+absolute-positioning 2096 6657a2b4a3ccaa59ce3c1f8295c40b9ffa8d5f3b7c19ad9f3280e1fca4b4b6cc # absolute offsets independent of flow
+nested-containers 7727 4215e24d10bc496f29391b7d67ab30a57dcaebeead511fad88ee0a8676250f11 # nested layout, margins and inherited padding
+opaque-alpha-strip 595 31206d4459c753425840b7ce4e06bd3e1ed77baf71d8b405b4af655785692519 # alpha channel stripping when the frame is fully opaque
+svg-reference 580 283abb82fa8b60c1039fb0b15a68f70afe40d10a5ae916fd3c98f2269639c0dd # text output shape and glyph ids

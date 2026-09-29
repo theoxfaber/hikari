@@ -105,17 +105,34 @@ CI fails if the render drifts, and prints the re-bless command. This is what
 makes a golden-image test suite possible in the first place — a renderer whose
 output moves with the host cannot be regression-tested by anyone.
 
+### The feature corpus
+
+One reference card cannot cover an engine. `cargo run --release -p hikari-rs
+--example corpus` checks 16 cases — one per capability, each hashed separately,
+so a regression names the feature that moved instead of hiding in one opaque
+image. Mismatches print the byte delta, because "the hash differs" does not tell
+you whether the change was intended.
+
+A digest proves *stability*, not *correctness*: a blank render is exactly as
+stable as a right one and is blessed just as happily. So
+`cargo run --release -p hikari-rs --example corpus_ink` additionally asserts
+each case contains a measured amount of real content. That is what caught a
+radial gradient that shipped as a flat fill.
+
 Re-baseline after an intentional visual change:
 
 ```sh
 cargo run --release -p hikari-rs --example determinism -- --bless
+cargo run --release -p hikari-rs --example corpus -- --bless
 ```
 
 ### Where determinism does not hold
 
-CJK glyphs come from a **system font**, so their outlines differ by platform and
-the guarantee does not apply to them. The determinism card deliberately covers
-only the embedded font's scripts for exactly this reason. A committed card with
+CJK glyphs come from a **system font** by default, so their outlines differ by
+platform and the guarantee does not apply to them. Enable the `bundled-cjk`
+feature to embed an OFL CJK face and the guarantee extends to it; the cost is a
+9,968,236-byte subset, which is why it is opt-in. The determinism card
+deliberately covers only the embedded font's scripts for this reason. A committed card with
 CJK in it would be green on one machine and red on another, which is worse than
 not testing it.
 
@@ -385,16 +402,20 @@ commercial terms, rather than obfuscation. See [PRICING.md](PRICING.md).
 
 Stated plainly, because a limitations section that hedges is worse than none.
 
-- **Hebrew does not join.** DejaVu Sans contains no Hebrew presentation forms,
-  so even the unshaded source font renders `שלום` with isolated letters. This is
-  font coverage, not a subsetting defect — a test asserts the subset matches
-  the source exactly so the two are never confused. Closing it means bundling a
-  font with Hebrew coverage.
-- **CJK depends on system fonts.** Not bundled, because the permissive options
-  are large and the proprietary system ones are not redistributable.
-  Production deployments should ship a subsetted OFL CJK font instead of
-  relying on system paths. The fallback path is exercised in CI with
-  `fonts-noto-cjk` installed.
+- **Hebrew coverage now comes from a bundled face.** Previously this file
+  claimed "Hebrew does not join" and that was **wrong**: modern Hebrew does not
+  join — isolated forms are correct typography, and both DejaVu Sans and Noto
+  Sans Hebrew cover all 43 Hebrew codepoints including niqqud. A subsetted
+  [Noto Sans Hebrew](https://github.com/notofonts/hebrew) is now bundled (57 KB
+  after subsetting, OFL) so the coverage is ours rather than the host's.
+- **CJK depends on system fonts by default.** Enable the `bundled-cjk` cargo
+  feature to embed a subsetted OFL CJK face and make output deterministic
+  without a system font. It is opt-in because the subset is 9,968,236 bytes,
+  which would dwarf the 2.8 MB WebAssembly build; the source is fetched by
+  `scripts/fetch-bundled-fonts.sh cjk` rather than committed. Without it, CJK
+  reaches a *system* font, so a render may differ between machines — the
+  determinism guarantee below covers every script the embedded faces cover, and
+  CJK only when this feature is on.
 - **`rustybuzz` and `ttf-parser` are declared unmaintained**
   (RUSTSEC-2026-0206, RUSTSEC-2026-0192). The shaper sitting at the centre of
   this project being unmaintained is the largest outstanding risk. Both
@@ -433,12 +454,19 @@ Ordered by what most limits the project, not by what is easiest.
       (`skrifa` / `write-fonts`). Both crates are unmaintained. This is the
       single largest piece of technical debt and the only reason abandoned code
       sits in the most critical path.
-- [ ] **Bundle OFL CJK and Hebrew-covering fonts**, ending the system-font
-      fallback, fixing Hebrew joining, and making the
-      [determinism](#determinism) guarantee unconditional.
+- [x] **Bundle OFL Hebrew and CJK-covering fonts.** A layout-preserving subset
+      of Noto Sans Hebrew is always bundled (57 KB), and Noto Sans SC is
+      available behind the opt-in `bundled-cjk` feature (9,968,236 B, fetched by
+      `scripts/fetch-bundled-fonts.sh`). The larger architectural part was a
+      *shaped* font chain: fallback text used to be rasterized by character,
+      bypassing the shaper, so no fallback could ever join. Each run is now split
+      by coverage and shaped with a face that has the glyph. Found and fixed a
+      bug where an unregistered `FontId` rerouted the whole run into the chain.
 - [ ] **Masks, filters, blend modes and shadow kinds.**
-- [ ] **Golden-image corpus** beyond the single determinism card — every
-      feature combination as a committed reference image, diffed in CI.
+- [x] **Golden-image corpus** — 16 cases, one per capability, in
+      `crates/hikari/tests/corpus.sha256`, diffed in CI, plus an ink assertion
+      per case so a blank render cannot be blessed. Found a radial gradient that
+      shipped as a flat fill because its radius was read as pixels.
 - [ ] **`lightningcss` style parsing** and a remote-asset preload helper.
 - [ ] **Criterion regression gates.** CI currently smoke-runs benchmarks;
       shared runners are too noisy to assert on timings, so this needs a

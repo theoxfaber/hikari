@@ -186,8 +186,14 @@ fn bg_fill(
             stops,
         } => {
             let id = format!("rg{x:.0}_{y:.0}_{w:.0}_{h:.0}");
+            // Same box-fraction conversion as the raster backend. `userSpaceOnUse`
+            // means `r` is in user units (px), so a 0.6 fraction must be scaled or
+            // the gradient is a sub-pixel dot clamped to its last stop. The two
+            // backends are held to the same units deliberately: a tree that
+            // renders as a gradient in PNG and a flat fill in SVG is exactly the
+            // divergence the shared-`Style` design is supposed to prevent.
             let rad = if *radius > 0.0 {
-                *radius
+                w.max(h) * *radius
             } else {
                 (w * w + h * h).sqrt() / 2.0
             };

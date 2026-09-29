@@ -108,6 +108,42 @@ reproduced on every CI run; the Linux one is recorded from the run that verified
 it. We would rather mark a row unverified than reprint a hash we have not
 reproduced.
 
+## Golden image corpus
+
+Determinism alone is not coverage. The reference card exercises a fraction of the
+engine, so a regression in wrapping, radii, shadows or gradients would not move
+its bytes and CI would stay green while the library rendered something worse.
+
+So there is one case per capability, in `crates/hikari/tests/corpus.sha256`, each
+hashed independently. A change names the feature that moved rather than hiding
+inside one opaque image.
+
+| Case | Bytes | Guards |
+|---|---|---|
+| `gradient-linear` | 13,666 | linear angle and stop interpolation |
+| `gradient-radial` | 100,475 | radial centre, radius and stops |
+| `border-radius` | 6,567 | corner rounding and border width |
+| `box-shadow` | 14,058 | shadow offset, blur and spread |
+| `grid-layout` | 5,393 | equal-column grid, gap, padding |
+| `flex-justify-align` | 1,503 | main and cross axis distribution |
+| `word-wrap` | 25,446 | greedy wrapping at `max_width` |
+| `text-clip-gradient` | 15,928 | `background-clip: text` |
+| `latin-typography` | 12,905 | kerning, ligatures, Latin metrics |
+| `arabic-joining` | 6,838 | contextual joining through GSUB |
+| `hebrew-rtl` | 5,413 | RTL ordering and Hebrew coverage |
+| `mixed-direction` | 8,576 | bidi run splitting |
+| `image-clipped` | 6,686 | image decode, sizing, rounded clip |
+| `absolute-positioning` | 2,096 | absolute offsets independent of flow |
+| `nested-containers` | 7,727 | nested layout and inherited padding |
+| `opaque-alpha-strip` | 595 | alpha stripping on a fully opaque frame |
+
+**A digest proves stability, not correctness.** A blank render is exactly as
+stable as a correct one, and gets blessed just as happily. So each case is also
+asserted to contain a measured amount of content by
+`cargo run -p hikari-rs --example corpus_ink`, which checks real pixel values
+against per-case ink floors. That check is what caught the radial gradient bug
+below; the digest alone blessed the broken output without complaint.
+
 ## Corrections log
 
 Kept deliberately. A benchmark document that has never been wrong has probably
@@ -120,6 +156,22 @@ not been measuring anything.
   subsetting.** It was not a tradeoff. The subsetter was dropping the layout
   tables, so kerning and ligatures were silently absent. Fixed in v0.18.
 - **v0.18 corrected the determinism digests** for the same reason, as above.
+- **v0.20 shipped a radial gradient that never rendered as a gradient.**
+  `with_radial_gradient` documents its centre as a box fraction, and `radius`
+  follows that convention, but the rasterizer passed the radius to
+  `tiny_skia` as if it were pixels. A `0.6` radius therefore became a 0.6-pixel
+  gradient; every other pixel fell outside it and `SpreadMode::Pad` clamped
+  them all to the final stop. The output was a flat fill in the last colour —
+  5,280 bytes of nothing that looked like a small, plausible image. The SVG
+  backend had the identical bug, so the two backends agreed with each other and
+  disagreed with the API.
+
+  Nothing caught it because the corpus digest was blessed from the broken
+  output, and a flat gradient is perfectly stable to hash. It took an
+  assertion about *ink* rather than *stability* to surface it: 3,263 content
+  pixels out of 360,000, where a real gradient gives 326,263. After the fix the
+  same case is 100,475 bytes, +95 KB of actual gradient, and the centre reads
+  the inner stop as it should.
 
 ## Still slower than we would like
 
@@ -128,5 +180,6 @@ not been measuring anything.
 - `card.png` at 58 KB is larger than the encoder curve suggests it should be
   for a mostly-flat image. Gradient banding is the suspected cause and is
   unmeasured.
-- Benchmarks are single-machine and single-card. A real corpus would cover
-  text-heavy, image-heavy and document workloads separately.
+- Benchmarks are single-machine and single-card. The golden corpus added in
+  v0.20 covers features, not workloads: it says nothing about throughput on
+  text-heavy, image-heavy or document-shaped trees.

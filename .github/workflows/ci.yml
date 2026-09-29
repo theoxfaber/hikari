@@ -125,6 +125,26 @@ jobs:
       # mismatch and prints the re-bless command.
       - run: cargo run --release -p hikari-rs --example determinism
 
+  corpus:
+    name: golden image corpus
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # One case per capability, so a visual regression names the feature that
+      # moved instead of hiding in one opaque image. A mismatch prints the byte
+      # delta, because "hash differs" does not tell a reviewer whether the
+      # change was intended.
+      - name: feature digests match
+        run: cargo run --release -p hikari-rs --example corpus
+      # A digest proves stability, not correctness: a blank render is just as
+      # stable as a correct one and would be blessed happily. This asserts every
+      # case actually has content, with measured floors. It is what caught the
+      # radial gradient rendering as a flat fill.
+      - name: every case draws something
+        run: cargo run --release -p hikari-rs --example corpus_ink
+
   benches:
     name: benchmark smoke
     runs-on: ubuntu-latest

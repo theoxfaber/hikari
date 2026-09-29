@@ -341,8 +341,19 @@ fn paint_background(
             stops,
         } => {
             let (ccx, ccy) = (x + cx * w, y + cy * h);
+            // `radius` is a fraction of the box, like `cx` and `cy` — the
+            // builder documents it in those terms and CSS `radial-gradient`
+            // positions are all box-relative. It used to be passed straight
+            // through as pixels, so a 0.6 radius became a 0.6px gradient: every
+            // pixel beyond that fell outside it and `SpreadMode::Pad` clamped
+            // them all to the final stop. The result was a flat fill in the last
+            // colour that looked superficially plausible and was 5,280 bytes of
+            // nothing. Nothing caught it because the digest was blessed from the
+            // broken output.
             let rad = if *radius > 0.0 {
-                *radius
+                // Scale by the larger dimension so a square box gives the
+                // expected radius and a wide one does not distort to an ellipse.
+                w.max(h) * *radius
             } else {
                 (w * w + h * h).sqrt() / 2.0
             };
