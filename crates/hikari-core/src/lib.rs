@@ -30,7 +30,13 @@ use taffy::{
 };
 
 /// RGBA color.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// Deserializes from either a CSS hex string or an `{r,g,b,a}` map. The string
+/// form exists because requiring `{"r":255,"g":255,"b":255,"a":255}` in the
+/// Node and WASM bindings makes the most common field in the API the most
+/// annoying one to write. Both forms are accepted; the struct form is what
+/// gets serialized, so output is unchanged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct Color {
     /// Red 0-255.
     pub r: u8,
@@ -84,6 +90,32 @@ impl Color {
             f32::from(self.b) / 255.0,
             f32::from(self.a) / 255.0,
         )
+    }
+}
+
+/// Accepts `"#rrggbb"`, `"#rgb"`, `"#rrggbbaa"`, a bare hex string without the
+/// `#`, or `{"r":…,"g":…,"b":…,"a":…}` (alpha optional, defaults to opaque).
+impl<'de> Deserialize<'de> for Color {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Repr {
+            Hex(String),
+            Rgba {
+                r: u8,
+                g: u8,
+                b: u8,
+                #[serde(default = "opaque")]
+                a: u8,
+            },
+        }
+        fn opaque() -> u8 {
+            255
+        }
+        Ok(match Repr::deserialize(d)? {
+            Repr::Hex(s) => Self::from_hex(&s),
+            Repr::Rgba { r, g, b, a } => Self { r, g, b, a },
+        })
     }
 }
 
@@ -176,7 +208,12 @@ pub struct ColorStop {
 }
 
 /// Background fill: solid color or gradient.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+///
+/// Accepts the shorthand `"#rrggbb"` in addition to `{"Solid": …}` in JSON,
+/// since a solid fill is the overwhelmingly common case and forcing the
+/// externally tagged form for it is pure ceremony. The tagged gradient forms
+/// are unchanged, so this is backwards compatible with existing input.
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum Background {
     /// Flat fill.
     Solid(Color),
@@ -205,6 +242,61 @@ impl Background {
     #[must_use]
     pub fn solid(hex: &str) -> Self {
         Self::Solid(Color::from_hex(hex))
+    }
+}
+
+/// Deserializes from either the shorthand form (`"#rrggbb"`, or any value
+/// `Color` accepts) or the externally tagged form (`{"Solid": …}`,
+/// `{"Linear": …}`, `{"Radial": …}`).
+impl<'de> Deserialize<'de> for Background {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        #[allow(dead_code, non_snake_case)]
+        enum Repr {
+            /// Bare colour -> solid fill. `Color` itself accepts a hex string
+            /// or an `{r,g,b,a}` map, so both shorthands work.
+            Shorthand(Color),
+            /// Single-key maps reproduce the externally tagged form.
+            Solid {
+                #[allow(dead_code)]
+                Solid: Color,
+            },
+            Linear {
+                #[allow(dead_code)]
+                Linear: LinearDef,
+            },
+            Radial {
+                #[allow(dead_code)]
+                Radial: RadialDef,
+            },
+        }
+        #[derive(Deserialize)]
+        struct LinearDef {
+            angle_deg: f32,
+            stops: Vec<ColorStop>,
+        }
+        #[derive(Deserialize)]
+        struct RadialDef {
+            cx: f32,
+            cy: f32,
+            radius: f32,
+            stops: Vec<ColorStop>,
+        }
+
+        Ok(match Repr::deserialize(d)? {
+            Repr::Shorthand(c) | Repr::Solid { Solid: c } => Self::Solid(c),
+            Repr::Linear { Linear: l } => Self::Linear {
+                angle_deg: l.angle_deg,
+                stops: l.stops,
+            },
+            Repr::Radial { Radial: r } => Self::Radial {
+                cx: r.cx,
+                cy: r.cy,
+                radius: r.radius,
+                stops: r.stops,
+            },
+        })
     }
 }
 
@@ -982,6 +1074,83 @@ mod tests {
                 a: 255
             }
         );
+    }
+
+    #[test]
+    fn color_deserializes_from_string_or_map() {
+        // The JSON bindings accept both, because forcing every colour to be a
+        // four-key object made the most common field the most tedious one.
+        let from_string: Color = serde_json::from_str("\"#0b1020\"").expect("hex string");
+        assert_eq!(
+            from_string,
+            Color {
+                r: 11,
+                g: 16,
+                b: 32,
+                a: 255
+            }
+        );
+
+        let from_short: Color = serde_json::from_str("\"#fff\"").expect("short hex");
+        assert_eq!(from_short, Color::rgb(255, 255, 255));
+
+        let with_alpha: Color = serde_json::from_str("\"#0b102080\"").expect("hex with alpha");
+        assert_eq!(with_alpha.a, 128);
+
+        let from_map: Color =
+            serde_json::from_str(r#"{"r":11,"g":16,"b":32,"a":255}"#).expect("rgba map");
+        assert_eq!(
+            from_map,
+            Color {
+                r: 11,
+                g: 16,
+                b: 32,
+                a: 255
+            }
+        );
+
+        // Alpha is optional in the map form and defaults to opaque.
+        let map_no_alpha: Color =
+            serde_json::from_str(r#"{"r":1,"g":2,"b":3}"#).expect("rgba without alpha");
+        assert_eq!(
+            map_no_alpha,
+            Color {
+                r: 1,
+                g: 2,
+                b: 3,
+                a: 255
+            }
+        );
+
+        // Serialization is unchanged: still the struct form.
+        let json = serde_json::to_string(&from_string).expect("serialize");
+        assert!(json.contains("\"r\":11"), "unexpected shape: {json}");
+    }
+
+    #[test]
+    fn background_accepts_shorthand_string() {
+        let shorthand: Background = serde_json::from_str("\"#0b1020\"").expect("shorthand");
+        assert_eq!(
+            shorthand,
+            Background::Solid(Color {
+                r: 11,
+                g: 16,
+                b: 32,
+                a: 255
+            })
+        );
+
+        let tagged: Background =
+            serde_json::from_str(r#"{"Solid":{"r":11,"g":16,"b":32,"a":255}}"#).expect("tagged");
+        assert_eq!(tagged, shorthand, "both forms must agree");
+
+        // Gradients keep their externally tagged form. Note the `r##` form:
+        // a plain `r#` string would terminate at the `"#` in `"#000000"`.
+        let gradient: Background = serde_json::from_str(
+            r##"{"Linear":{"angle_deg":90,"stops":[{"pos":0.0,"color":"#000000"},{"pos":1.0,"color":"#ffffff"}]}}"##,
+        )
+        .expect("gradient");
+        assert!(matches!(gradient, Background::Linear { .. }));
     }
 
     #[test]

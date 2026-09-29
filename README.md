@@ -14,8 +14,10 @@ std::fs::write("og.png", render_png(&tree, 1200, 630)?)?;
 
 One API produces PNG, SVG, animated GIF/APNG, lossless WebP, and PDF with
 selectable text. Text is shaped with real OpenType layout tables, so kerning,
-ligatures and Arabic joining work. Output is byte-identical across platforms,
-which is what makes it snapshot-testable in CI.
+ligatures and Arabic joining work. Output is byte-identical across platforms
+for every script the embedded font covers — which makes it snapshot-testable in
+CI. CJK currently breaks that guarantee; see
+[Determinism](#determinism).
 
 ```sh
 cargo add hikari-rs
@@ -25,18 +27,10 @@ cargo add hikari-rs
 
 ## The bar
 
-Hikari is held to one standard: **be the fastest, most correct and most
-predictable way to turn a layout tree into pixels and documents.**
-
-Not "fast for a Rust library". Not "good enough". The best number we can
-measure, on every axis, with the unflattering ones published too. Every figure
-in this README was measured on the machine named beside it. Where we are
-weak, [Known limitations](#known-limitations) says so without hedging.
-
-That standard is why the interesting parts of this codebase are the unglamorous
-ones: font subsetting that does not silently break shaping, a paint path that
-renders the glyph the shaper actually chose, a cache that survives a panic, and
-CI that fails when any of that regresses.
+Be the fastest, most correct and most predictable way to turn a layout tree into
+pixels and documents — and publish the numbers either way, including the ones
+that are unflattering. That standard is why the interesting parts of this
+codebase are the unglamorous ones.
 
 ---
 
@@ -90,6 +84,11 @@ Every example writes to the workspace root (override with `HIKARI_EXAMPLE_OUT`).
 
 ## Determinism
 
+**Scope: every script the embedded font covers.** Latin, Greek, Cyrillic,
+Hebrew, Arabic, Persian and the symbol blocks render byte-identically on every
+platform because the font is compiled into the binary. CJK is the exception and
+is called out below rather than glossed over.
+
 The same tree produces the same bytes on every platform and architecture. Not
 "visually equivalent" — the same SHA-256.
 
@@ -110,6 +109,18 @@ Re-baseline after an intentional visual change:
 ```sh
 cargo run --release -p hikari-rs --example determinism -- --bless
 ```
+
+### Where determinism does not hold
+
+CJK glyphs come from a **system font**, so their outlines differ by platform and
+the guarantee does not apply to them. The determinism card deliberately covers
+only the embedded font's scripts for exactly this reason. A committed card with
+CJK in it would be green on one machine and red on another, which is worse than
+not testing it.
+
+Closing this means bundling a subsetted OFL CJK font so those glyphs come from
+the binary too. It is on the [roadmap](#roadmap) and is the honest reason the
+headline claim above is scoped rather than absolute.
 
 ---
 
@@ -249,16 +260,20 @@ const hikari = require('@hikari-rs/node');
 
 const tree = JSON.stringify({
   Container: {
-    style: { width: 1200, height: 630, background: { Solid: { r: 11, g: 16, b: 32, a: 255 } } },
-    children: [{ Text: { text: 'Hello from Node', style: { font_size: 72, color: { r: 255, g: 255, b: 255, a: 255 } } } }],
+    style: { width: 1200, height: 630, background: '#0b1020' },
+    children: [
+      { Text: { text: 'Hello from Node', style: { font_size: 72, color: '#ffffff' } } },
+    ],
   },
 });
 
 const png = hikari.renderPngSync(tree, 1200, 630);
 ```
 
-`color` is an `{ r, g, b, a }` struct, not a CSS string — `"#ffffff"` is
-rejected. Full types ship in `npm/index.d.ts`.
+Colours accept CSS strings (`"#rrggbb"`, `"#rgb"`, `"#rrggbbaa"`) or an
+`{ r, g, b, a }` object, and `background` accepts a bare colour string as a
+shorthand for `{ "Solid": … }`. Gradient forms are unchanged. Full types ship
+in `npm/index.d.ts`.
 
 PDF is a Pro feature and reads `HIKARI_LICENSE` and `HIKARI_PUBKEY` from the
 environment, so operators keep their own signing infrastructure.
@@ -329,6 +344,11 @@ commercial terms, rather than obfuscation. See [PRICING.md](PRICING.md).
 
 Stated plainly, because a limitations section that hedges is worse than none.
 
+- **No custom font loading.** The only font available is the embedded DejaVu
+  subset; there is no API to supply your own, and the PDF and SVG backends
+  hardcode the same family. For OG images this is the most limiting gap in the
+  project, and it is first on the [roadmap](#roadmap). It is a real blocker for
+  anyone whose brand has a typeface, not a rough edge.
 - **Hebrew does not join.** DejaVu Sans contains no Hebrew presentation forms,
   so even the unshaded source font renders `שלום` with isolated letters. This is
   font coverage, not a subsetting defect — a test asserts the subset matches
@@ -355,9 +375,11 @@ Stated plainly, because a limitations section that hedges is worse than none.
   structure, no archival validation.
 - **No ecosystem yet.** No star history, no adopters, no battle-tested corpus.
   The determinism work exists precisely to make that corpus possible.
-- **The git history is one commit.** The project's provenance is a single
-  squashed commit, so its release timeline is documented in
-  [CHANGELOG.md](CHANGELOG.md) rather than derived from history.
+- **The git history is one day old.** All seven commits were made on
+  2026-09-29/30. There are no release tags, no crates.io or npm downloads and
+  no external contributors, so there is no track record to judge this by. The
+  release timeline in [CHANGELOG.md](CHANGELOG.md) is a claim about what
+  changed, not something derivable from history.
 
 ---
 
@@ -365,12 +387,22 @@ Stated plainly, because a limitations section that hedges is worse than none.
 
 Ordered by what most limits the project, not by what is easiest.
 
+- [ ] **Load caller-supplied fonts.** There is no public font-loading API yet:
+      the embedded DejaVu subset is compiled in and is the only font the Rust,
+      PDF, SVG, Node and WASM paths will use. An OG-image generator whose text
+      cannot be set in the brand's typeface is not usable for its main job, so
+      this gates adoption more than any other item here.
+- [ ] **Typed builder / JSX-style front end.** Today callers hand-build node
+      trees or externally tagged JSON. Colour strings now work in JSON, but the
+      ergonomics of building a tree by hand are still the weakest part of the
+      API.
 - [ ] **Migrate off `rustybuzz` and `ttf-parser` to `fontations`**
       (`skrifa` / `write-fonts`). Both crates are unmaintained. This is the
       single largest piece of technical debt and the only reason abandoned code
       sits in the most critical path.
 - [ ] **Bundle OFL CJK and Hebrew-covering fonts**, ending the system-font
-      fallback and fixing Hebrew joining.
+      fallback, fixing Hebrew joining, and making the
+      [determinism](#determinism) guarantee unconditional.
 - [ ] **Masks, filters, blend modes and shadow kinds.**
 - [ ] **Golden-image corpus** beyond the single determinism card — every
       feature combination as a committed reference image, diffed in CI.

@@ -60,6 +60,12 @@ kerns, and Arabic and Persian join into connected letterforms.
 - `cargo fmt --check` failed, so CI was red on its first step.
 
 ### Added
+- Colours now deserialize from CSS strings as well as `{r,g,b,a}` objects, and
+  `background` accepts a bare colour string as shorthand for `{"Solid": …}`.
+  The Node and WASM APIs previously required a four-key object literal for
+  every colour, which made the most common field in the API the most tedious
+  one to write. Gradient forms and the existing tagged solid form are
+  unchanged, so existing input still parses.
 - `font_subset_tests`: shaping compared against the full source font for
   Arabic, Persian, Hebrew, kerning and ligatures, plus outline-presence checks
   over every covered codepoint. The failure this guards against is silent by
@@ -85,6 +91,10 @@ kerns, and Arabic and Persian join into connected letterforms.
   unfinished. The README now describes what CI actually does.
 
 ### Known gaps
+- **No custom font loading.** The embedded DejaVu subset is the only font the
+  Rust, PDF, SVG, Node and WASM paths will use. For an OG-image generator this
+  is the most limiting gap in the project and it gates adoption more than any
+  other item on the roadmap.
 - **`rustybuzz` and `ttf-parser` are both declared unmaintained**
   (RUSTSEC-2026-0206, RUSTSEC-2026-0192). The shaper sits in the most critical
   path in the project, so this is the top item on the roadmap. `cargo deny`

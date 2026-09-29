@@ -10,15 +10,11 @@
  *    `Style` is optional, so partial styles are fine.
  */
 
-/// Solid colour, 8-bit RGBA.
-export interface Rgba {
-  r: number;
-  g: number;
-  b: number;
-  a: number;
-}
+/// Solid colour. Accepts a CSS string (`"#rrggbb"`, `"#rgb"`, `"#rrggbbaa"`)
+/// or an `{r,g,b,a}` object.
+export type Rgba = { r: number; g: number; b: number; a?: number } | string;
 
-export type Background = { Solid: Rgba };
+export type Background = { Solid: Rgba } | Rgba | string;
 
 export type ImgFit = 'Cover' | 'Contain' | 'Fill';
 
@@ -51,9 +47,7 @@ export interface Style {
   top?: number | null;
   background?: Background | null;
   /**
-   * Text colour. This is a `{r,g,b,a}` struct, **not** a CSS string: the Rust
-   * `Color` is a plain struct with no hex-string deserialiser, so
-   * `"#ffffff"` is rejected. Use `{ "r": 255, "g": 255, "b": 255, "a": 255 }`.
+   * Text colour. A CSS string (`"#ffffff"`) or an `{r,g,b,a}` object.
    */
   color?: Rgba | null;
   font_size?: number | null;
