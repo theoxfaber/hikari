@@ -1,48 +1,159 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Playground — Hikari</title>
-<link rel="stylesheet" href="style.css"></head>
+<meta name="color-scheme" content="dark">
+<link rel="stylesheet" href="style.css">
+<style>
+  /* Playground-only layout. The design system owns everything else; these three
+     rules are genuinely page-specific, so they live here rather than bloating
+     the shared stylesheet. */
+  .controls {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr auto;
+    gap: var(--s-4);
+    align-items: end;
+  }
+
+  @media (max-width: 720px) {
+    .controls {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .controls .field--wide {
+      grid-column: 1 / -1;
+    }
+  }
+
+  #out:empty {
+    display: none;
+  }
+
+  #out img {
+    width: 100%;
+    border-radius: var(--r-control);
+  }
+</style>
+</head>
 <body>
-<nav><a class="logo" href="index.html">hikari</a>
-<a href="index.html">Home</a><a href="install.html">Install</a><a href="api.html">API</a><a href="benchmarks.html">Benchmarks</a><a href="pricing.html">Pricing</a><a class="me" href="playground.html">Playground</a></nav>
-<div class="wrap">
-<h1>Playground</h1>
-<p class="mut">Runs 100% in your browser — the actual Hikari engine compiled to WebAssembly. Nothing is uploaded.</p>
-<p>
-<label>Preset <select id="preset">
-<option value="banner">Gradient banner</option>
-<option value="card">Two-column card</option>
-<option value="clip">Gradient-clipped headline</option>
-</select></label>
-<label>W <input type="number" id="w" value="1200" min="16" max="2400" step="10"></label>
-<label>H <input type="number" id="h" value="630" min="16" max="2400" step="10"></label>
-<button class="go" id="go">Render</button>
-<span id="stat" class="mut"></span>
-</p>
-<div id="out"></div>
-<h2>SVG output</h2>
-<textarea id="svgout" readonly></textarea>
-<h2>Node tree JSON</h2>
-<p class="mut">Edit it, press Render — this exact JSON is what the Rust and Node APIs accept.</p>
-<textarea id="tree" style="width:100%;height:220px;background:var(--panel);color:var(--ink);border:1px solid #22304d;border-radius:8px;"></textarea>
-</div>
+
+<header class="nav" id="nav">
+  <div class="page nav__inner">
+    <a class="nav__brand" href="index.html"><span class="nav__mark" aria-hidden="true"></span> hikari</a>
+    <nav class="nav__links" aria-label="Primary">
+      <a class="nav__link" href="install.html" data-optional>Install</a>
+      <a class="nav__link" href="api.html" data-optional>API</a>
+      <a class="nav__link" href="benchmarks.html">Benchmarks</a>
+      <a class="nav__link" href="pricing.html" data-optional>Pricing</a>
+      <a class="nav__link" href="playground.html" aria-current="page">Playground</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="section">
+    <div class="page" style="max-width:960px">
+      <p class="eyebrow">Live</p>
+      <h1 style="font-size:var(--step-4)">Playground</h1>
+      <p class="lede" style="margin-top:var(--s-4)">
+        The actual engine, compiled to WebAssembly, running in this page.
+        Nothing is uploaded and no network call is made.
+      </p>
+    </div>
+  </section>
+
+  <section class="section--tight">
+    <div class="page" style="max-width:960px">
+      <div class="controls">
+        <div class="field field--wide">
+          <label class="field__label" for="preset">Preset</label>
+          <select id="preset">
+            <option value="banner">Gradient banner</option>
+            <option value="card">Two-column card</option>
+            <option value="clip">Gradient-clipped headline</option>
+            <option value="multilingual">Multilingual, with joining</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="field__label" for="w">Width</label>
+          <input type="text" id="w" value="1200" inputmode="numeric">
+        </div>
+        <div class="field">
+          <label class="field__label" for="h">Height</label>
+          <input type="text" id="h" value="630" inputmode="numeric">
+        </div>
+        <button class="btn btn--primary" id="go">Render</button>
+      </div>
+      <p class="status" id="stat" style="margin-top:var(--s-4)"></p>
+    </div>
+  </section>
+
+  <section class="section--tight">
+    <div class="page" style="max-width:960px">
+      <div class="frame frame--flush" id="out"></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="page" style="max-width:960px">
+      <div class="stack">
+        <div class="field">
+          <label class="field__label" for="tree">Node tree JSON</label>
+          <textarea id="tree" rows="14" spellcheck="false"></textarea>
+          <p class="status">
+            Edit it and press Render. This is the same JSON the Rust and Node
+            APIs accept — every style field is optional, and colours take CSS
+            strings.
+          </p>
+        </div>
+        <div class="field">
+          <label class="field__label" for="svgout">SVG output</label>
+          <textarea id="svgout" rows="5" readonly spellcheck="false"></textarea>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="page footer__inner">
+    <p class="footer__note">Hikari — boring dependencies, published numbers, stated limitations.</p>
+    <nav class="footer__links" aria-label="Footer">
+      <a href="index.html">Home</a>
+      <a href="install.html">Install</a>
+      <a href="api.html">API</a>
+      <a href="benchmarks.html">Benchmarks</a>
+      <a href="pricing.html">Pricing</a>
+      <a href="https://github.com/theoxfaber/hikari">GitHub</a>
+    </nav>
+  </div>
+</footer>
+
 <script type="module">
 import init, { render_png, render_svg, version } from './pkg/hikari_wasm.js';
 await init();
+
 const C = (r, g, b) => ({ r, g, b, a: 255 });
+
+// `color` and `background` also accept CSS strings — the playground uses the
+// object form so the full schema is visible, but a caller can write
+// color: '#ffffff' instead.
 const base = { display: 'Flex', dir: 'Row', justify: 'Start', align: 'Start', gap: 0,
   padding: 0, margin: 0, border: 0, border_color: null, absolute: false, left: null,
   top: null, background: null, color: null, font_size: null, radius: 0, grow: 0,
   grid_cols: null, max_width: null, aspect: null, bookmark: null,
   keep_together: false, repeat_header: false, shadow: null, link: null, clip_text: false };
 const S = (o) => ({ ...base, ...o });
-const T = (text, size, hex) => ({ Text: { text, style: S({ color: hex, font_size: size }) } });
+const T = (text, size, color) => ({ Text: { text, style: S({ color, font_size: size }) } });
+
 const presets = {
   banner: { Container: { style: S({ width: 1200, height: 630, justify: 'Center', align: 'Center',
     background: { Linear: { angle_deg: 180, stops: [
       { pos: 0, color: C(219, 234, 254) }, { pos: 1, color: C(254, 226, 226) }] } } }),
-    children: [T('Hello from Hikari', 84, { r: 15, g: 23, b: 42, a: 255 })] } },
+    children: [T('Hello from Hikari', 84, C(15, 23, 42))] } },
+
   card: { Container: { style: S({ width: 1200, height: 630, justify: 'Center', align: 'Center',
     gap: 48, padding: 60, background: { Solid: C(11, 16, 32) } }), children: [
     { Container: { style: S({ width: 480, height: 480, radius: 32, border: 4,
@@ -52,37 +163,63 @@ const presets = {
       children: [] } },
     { Container: { style: S({ dir: 'Column', justify: 'Center', gap: 20 }), children: [
       T('Ship OG images', 72, C(255, 255, 255)),
-      { Text: { text: 'No browser, no screenshots, just pixels.',
-        style: S({ color: C(148, 163, 184), font_size: 30, max_width: 480 }) } },
+      T('No browser, no screenshots, just pixels.', 30, C(148, 163, 184)),
     ] } },
   ] } },
+
   clip: { Container: { style: S({ width: 1200, height: 630, justify: 'Center', align: 'Center',
     background: { Solid: C(11, 16, 32) } }),
     children: [{ Text: { text: 'Gradient words',
       style: S({ color: C(255, 255, 255), font_size: 120, clip_text: true,
         background: { Linear: { angle_deg: 90, stops: [
           { pos: 0, color: C(56, 189, 248) }, { pos: 1, color: C(167, 139, 250) }] } } }) } }] } },
+
+  // Arabic and Persian only join into connected letterforms if the embedded
+  // subset kept GSUB. This preset is the visible proof that it did.
+  multilingual: { Container: { style: S({ width: 1200, height: 630, dir: 'Column',
+    justify: 'Center', align: 'Center', gap: 10, background: { Solid: C(11, 16, 32) } }),
+    children: [
+      T('مرحبا بالعالم', 72, C(147, 197, 253)),
+      T('فارسی', 72, C(196, 181, 253)),
+      T('office waffle AVATAR', 40, C(255, 255, 255)),
+    ] } },
 };
+
 const $ = (id) => document.getElementById(id);
 $('tree').value = JSON.stringify(presets.banner, null, 1);
 $('preset').onchange = (e) => { $('tree').value = JSON.stringify(presets[e.target.value], null, 1); };
+
 $('go').onclick = () => {
   const t0 = performance.now();
+  const stat = $('stat');
   try {
     const tree = $('tree').value;
-    const w = +$('w').value || 1200, h = +$('h').value || 630;
+    const w = +$('w').value || 1200;
+    const h = +$('h').value || 630;
     const png = render_png(tree, w, h);
     const url = URL.createObjectURL(new Blob([png], { type: 'image/png' }));
-    $('out').innerHTML = '';
     const img = document.createElement('img');
     img.src = url;
-    $('out').appendChild(img);
+    img.alt = 'Rendered output from the node tree below';
+    $('out').replaceChildren(img);
     $('svgout').value = render_svg(tree, w, h);
-    $('stat').textContent = `v${version()} · ${(performance.now() - t0).toFixed(1)}ms · ${png.length} bytes`;
-  } catch (e) { $('stat').textContent = 'error: ' + e; }
+    stat.dataset.tone = 'ok';
+    stat.textContent = `v${version()} · ${(performance.now() - t0).toFixed(1)}ms · ${png.length} bytes`;
+  } catch (e) {
+    stat.dataset.tone = 'bad';
+    stat.textContent = 'error: ' + e;
+  }
 };
+
 $('go').click();
 </script>
-<footer>hikari — boring dependencies, measured numbers.</footer>
+
+<script>
+  var nav = document.getElementById('nav');
+  var onScroll = function () { nav.dataset.stuck = String(window.scrollY > 8); };
+  onScroll();
+  window.addEventListener('scroll', onScroll, { passive: true });
+</script>
+
 </body>
 </html>

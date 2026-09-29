@@ -1,18 +1,46 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>API — Hikari</title>
-<link rel="stylesheet" href="style.css"></head>
+<meta name="color-scheme" content="dark">
+<link rel="stylesheet" href="style.css">
+</head>
 <body>
-<nav><a class="logo" href="index.html">hikari</a>
-<a href="index.html">Home</a><a href="install.html">Install</a><a class="me" href="api.html">API</a><a href="benchmarks.html">Benchmarks</a><a href="pricing.html">Pricing</a><a href="playground.html">Playground</a></nav>
-<div class="wrap">
-<h1>API</h1>
-<p>Everything renders from a JSON-serializable <b>node tree</b>. Three node
-kinds: <code>Container</code>, <code>Text</code>, <code>Image</code>. Try it in the
-<a href="playground.html">playground</a>.</p>
-<h2>Rust</h2>
-<pre><code>use hikari::{Node, Style, render_png, render_svg, render_webp};
+
+<header class="nav" id="nav">
+  <div class="page nav__inner">
+    <a class="nav__brand" href="index.html"><span class="nav__mark" aria-hidden="true"></span> hikari</a>
+    <nav class="nav__links" aria-label="Primary">
+      <a class="nav__link" href="install.html" data-optional>Install</a>
+      <a class="nav__link" href="api.html" data-optional aria-current="page">API</a>
+      <a class="nav__link" href="benchmarks.html">Benchmarks</a>
+      <a class="nav__link" href="pricing.html" data-optional>Pricing</a>
+      <a class="nav__link" href="playground.html">Playground</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="section">
+    <div class="page" style="max-width:860px">
+      <p class="eyebrow">Reference</p>
+      <h1 style="font-size:var(--step-4)">API</h1>
+      <p class="lede" style="margin-top:var(--s-4)">
+        Everything renders from a node tree. There are three node kinds —
+        <code>Container</code>, <code>Text</code> and <code>Image</code> — and
+        every style field is optional. <a href="playground.html">Try each one in
+        the playground</a>.
+      </p>
+    </div>
+  </section>
+
+  <section class="section--tight">
+    <div class="page" style="max-width:860px">
+      <div class="code-block">
+        <span class="code-block__label">rust</span>
+<pre><code>use hikari::{render_png, render_svg, render_webp, Node, Style};
 
 let tree = Node::container(
     Style::centered()
@@ -20,35 +48,147 @@ let tree = Node::container(
         .with_linear_gradient(180.0, &amp;[(0.0, "#dbeafe"), (1.0, "#fee2e2")]),
     vec![Node::text("Hello", Style::text(84.0, "#0f172a"))],
 );
+
 std::fs::write("og.png", render_png(&amp;tree, 1200, 630)?)?;</code></pre>
-<h2>Style cheat sheet</h2>
-<table>
-<tr><th>Builder</th><th>Does</th></tr>
-<tr><td><code>Style::grid(n)</code></td><td>n equal columns</td></tr>
-<tr><td><code>.with_background / .with_linear_gradient / .with_radial_gradient</code></td><td>fills</td></tr>
-<tr><td><code>.with_border / .with_radius / .with_shadow</code></td><td>edges + depth</td></tr>
-<tr><td><code>.with_max_width</code></td><td>word wrap</td></tr>
-<tr><td><code>balance_text / fit_font_size</code></td><td>headline typography helpers</td></tr>
-<tr><td><code>.clip_text()</code></td><td>gradient-clipped glyphs</td></tr>
-<tr><td><code>.with_bookmark / .with_link</code></td><td>PDF outline + hyperlink (Pro PDF)</td></tr>
-<tr><td><code>.keep_together / .repeat_header</code></td><td>flow pagination control</td></tr>
-<tr><td><code>.absolute_at / .with_margin</code></td><td>positioning + spacing</td></tr>
-</table>
-<p class="mut">All style fields accept partial JSON with defaults — see
-<code>npm/test.mjs</code> for the full node-tree schema.</p>
-<h2>PDF (Pro)</h2>
-<pre><code>use hikari::{PageSize, PdfOptions, render_pdf_with, License, now_unix};
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="page" style="max-width:860px">
+      <p class="eyebrow">Style</p>
+      <h2>Builder surface</h2>
+      <div class="table-wrap" style="margin-top:var(--s-5)">
+        <table>
+          <thead>
+            <tr><th>Builder</th><th>Effect</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>Style::grid(n)</code></td><td><em>n</em> equal columns</td></tr>
+            <tr><td><code>.with_background</code></td><td>Solid fill</td></tr>
+            <tr><td><code>.with_linear_gradient</code> · <code>.with_radial_gradient</code></td><td>Gradient fills</td></tr>
+            <tr><td><code>.with_border</code> · <code>.with_radius</code></td><td>Edges and corner rounding</td></tr>
+            <tr><td><code>.with_shadow</code></td><td>Blurred box shadow</td></tr>
+            <tr><td><code>.with_max_width</code></td><td>Word wrap at a width</td></tr>
+            <tr><td><code>.with_padding</code> · <code>.with_margin</code></td><td>Spacing</td></tr>
+            <tr><td><code>.absolute_at(x, y)</code></td><td>Absolute positioning</td></tr>
+            <tr><td><code>.clip_text()</code></td><td>Gradient clipped through glyphs</td></tr>
+            <tr><td><code>.with_link(url)</code></td><td>Hyperlink and PDF annotation</td></tr>
+            <tr><td><code>.with_bookmark(level, title)</code></td><td>PDF outline entry</td></tr>
+            <tr><td><code>.keep_together()</code> · <code>.repeat_header()</code></td><td>Flow pagination control</td></tr>
+            <tr><td><code>.with_font(id)</code></td><td>Caller-registered font, inherited by children</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="page" style="max-width:860px">
+      <p class="eyebrow">Fonts</p>
+      <h2>Using your own typeface</h2>
+      <p class="prose" style="margin-top:var(--s-4)">
+        Register once, then set the id on any node. It is inherited by
+        descendants, so setting it on a card root covers every text run inside
+        it — and layout, measurement, raster, SVG and PDF all resolve the same
+        face, so text is never positioned for one font and drawn in another.
+      </p>
+      <div class="code-block" style="margin-top:var(--s-5)">
+        <span class="code-block__label">rust</span>
+<pre><code>use hikari::register_font;
+
+let brand = register_font("Inter", &amp;std::fs::read("Inter-Regular.ttf")?)?;
+
+// Ids are content-addressed: registering the same bytes again returns the
+// same id and does no work, so this is safe to call per request.
+let tree = Node::container(
+    Style::row().with_size(1200.0, 630.0).with_font(brand),
+    vec![Node::text("Shipped in your typeface", Style::text(72.0, "#fff"))],
+);</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="page" style="max-width:860px">
+      <p class="eyebrow">Text helpers</p>
+      <h2>Headline typography</h2>
+      <p class="prose" style="margin-top:var(--s-4)">
+        Pure functions over shaped text. Layout and paint call the same code, so
+        they agree exactly.
+      </p>
+      <div class="code-block" style="margin-top:var(--s-5)">
+        <span class="code-block__label">rust</span>
+<pre><code>// Reflow to minimise the widest line, like CSS text-wrap: balance.
+let balanced = balance_text(text, px, max_w, BUILTIN_FONT);
+
+// Largest size at which the text still fits the box.
+let size = fit_font_size(text, max_w, max_h, max_px, BUILTIN_FONT);
+
+let (w, h) = measure_text(text, px, BUILTIN_FONT);</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="page" style="max-width:860px">
+      <p class="eyebrow">Pro</p>
+      <h2>PDF and motion</h2>
+      <p class="prose" style="margin-top:var(--s-4)">
+        Both take a <code>&amp;License</code>. Keys are read from the
+        environment by the bindings; in Rust you construct one.
+      </p>
+      <div class="code-block" style="margin-top:var(--s-5)">
+        <span class="code-block__label">rust</span>
+<pre><code>use hikari::{now_unix, render_pdf_with, Attachment, License, PageSize, PdfOptions};
+
 let options = PdfOptions {
     title: Some("Invoice".into()),
-    paginate: true,   // flow one node across pages
-    attachments: vec![Attachment { name: "factur-x.xml".into(), .. }],
+    paginate: true,          // flow one node across pages
+    attachments: vec![Attachment {
+        name: "factur-x.xml".into(),
+        ..Attachment::new()
+    }],
     ..PdfOptions::new()
 };
-let pdf = render_pdf_with(&amp;[doc], PageSize::A4, &amp;options, &amp;License::dev(now_unix()))?;</code></pre>
-<h2>Motion (Pro)</h2>
-<pre><code>let gif = render_animation_gif(&amp;[(frame_a, 500), (frame_b, 500)], 480, 240, &amp;lic)?;
-let apng = render_animation_apng(&amp;frames, 480, 240, &amp;lic)?;</code></pre>
-</div>
-<footer>hikari — boring dependencies, measured numbers.</footer>
+
+let pdf = render_pdf_with(
+    &amp;[doc],
+    PageSize::A4,
+    &amp;options,
+    &amp;License::dev(now_unix()),
+)?;
+
+let gif = render_animation_gif(&amp;[(frame_a, 500), (frame_b, 500)], 480, 240, &amp;lic)?;</code></pre>
+      </div>
+      <p class="prose" style="margin-top:var(--s-4)">
+        A registered font id works in PDF too: fonts are embedded per document
+        and the text stays selectable and extractable.
+      </p>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="page footer__inner">
+    <p class="footer__note">Hikari — boring dependencies, published numbers, stated limitations.</p>
+    <nav class="footer__links" aria-label="Footer">
+      <a href="index.html">Home</a>
+      <a href="install.html">Install</a>
+      <a href="benchmarks.html">Benchmarks</a>
+      <a href="pricing.html">Pricing</a>
+      <a href="playground.html">Playground</a>
+      <a href="https://github.com/theoxfaber/hikari">GitHub</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+  var nav = document.getElementById('nav');
+  var onScroll = function () { nav.dataset.stuck = String(window.scrollY > 8); };
+  onScroll();
+  window.addEventListener('scroll', onScroll, { passive: true });
+</script>
+
 </body>
 </html>

@@ -1,29 +1,897 @@
-:root { --bg: #0b1020; --panel: #111a30; --ink: #e8edf7; --mut: #94a3b8; --acc: #38bdf8; }
-* { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 system-ui, sans-serif; }
-.wrap { max-width: 880px; margin: 0 auto; padding: 0 20px 64px; }
-nav { display: flex; gap: 18px; padding: 18px 20px; max-width: 880px; margin: 0 auto; }
-nav a { color: var(--mut); text-decoration: none; }
-nav a:hover, nav a.me { color: var(--acc); }
-nav .logo { color: var(--ink); font-weight: 700; margin-right: auto; }
-h1 { font-size: 2.4em; line-height: 1.15; }
-code, pre { background: var(--panel); border-radius: 8px; }
-pre { padding: 14px 16px; overflow-x: auto; }
-code { padding: 2px 6px; }
-pre code { padding: 0; background: none; }
-table { border-collapse: collapse; width: 100%; margin: 16px 0; }
-th, td { border: 1px solid #22304d; padding: 8px 12px; text-align: left; }
-th { background: var(--panel); }
-.btn { display: inline-block; background: var(--acc); color: #04121f; font-weight: 700;
-  padding: 10px 22px; border-radius: 10px; text-decoration: none; margin: 6px 8px 6px 0; }
-.btn.ghost { background: transparent; color: var(--acc); border: 1px solid var(--acc); }
-.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-@media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } }
-.card { background: var(--panel); border-radius: 12px; padding: 16px 18px; }
-.mut { color: var(--mut); }
-select, input, button { font: inherit; }
-select, input[type=number] { background: var(--panel); color: var(--ink); border: 1px solid #22304d; border-radius: 8px; padding: 8px 10px; }
-button.go { background: var(--acc); color: #04121f; font-weight: 700; border: 0; border-radius: 8px; padding: 8px 18px; cursor: pointer; }
-#out img { max-width: 100%; border-radius: 12px; border: 1px solid #22304d; }
-textarea#svgout { width: 100%; height: 120px; background: var(--panel); color: var(--mut); border: 1px solid #22304d; border-radius: 8px; }
-footer { color: var(--mut); font-size: 0.85em; padding: 32px 20px; text-align: center; }
+/* ==========================================================================
+   Hikari — design system
+   --------------------------------------------------------------------------
+   One stylesheet, one system. Every page is composed from these tokens and
+   components; nothing is styled ad hoc.
+
+   The palette is not arbitrary. --bg and the accent family are lifted from what
+   the engine actually renders (the default card background, and the cyan in the
+   gradient and ring examples), so the site and the product share a colour
+   language rather than the site borrowing a generic one.
+
+   Deliberate omissions, per the restraint rule: no gradients-as-decoration, no
+   glassmorphism, no glow, no drop shadows on cards. In a dark UI, elevation is
+   carried by surface lightness and a single hairline border. The only shadow in
+   the system is on the nav once it detaches, and it exists to separate a fixed
+   element from scrolling content.
+   ========================================================================== */
+
+:root {
+  /* --- Colour -----------------------------------------------------------
+     Background -> surface -> text -> dim -> faint -> accent. That order is
+     the contrast hierarchy and it is the only place colour carries meaning. */
+  --bg: #0a0e1a;
+  --bg-deep: #070a13;
+  --surface: #101527;
+  --surface-2: #161d33;
+
+  --line: rgba(148, 163, 184, 0.13);
+  --line-strong: rgba(148, 163, 184, 0.24);
+
+  --text: #e9eef8;
+  --text-dim: #97a3bd;
+  --text-faint: #626e88;
+
+  /* One accent. The same hue means the same thing everywhere: interactive. */
+  --accent: #7dd3fc;
+  --accent-dim: rgba(125, 211, 252, 0.14);
+  --accent-line: rgba(125, 211, 252, 0.32);
+
+  --warn: #fbbf24;
+  --bad: #f87171;
+  --good: #6ee7b7;
+
+  /* --- Type --------------------------------------------------------------
+     Two families, and the second is not decoration: this is a rendering
+     library, so code is a first-class content type. */
+  --sans: "Inter", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, "JetBrains Mono", Menlo,
+    Consolas, "Liberation Mono", monospace;
+
+  --step--1: 0.8125rem;
+  --step-0: 1rem;
+  --step-1: 1.0625rem;
+  --step-2: 1.375rem;
+  --step-3: 1.875rem;
+  --step-4: 2.5rem;
+  --step-5: clamp(2.75rem, 6.2vw, 4.5rem);
+
+  /* --- Space -------------------------------------------------------------
+     4px base. Sections get 96px so content is deliberately placed. */
+  --s-2: 0.5rem;
+  --s-3: 0.75rem;
+  --s-4: 1rem;
+  --s-5: 1.5rem;
+  --s-6: 2rem;
+  --s-7: 3rem;
+  --s-8: 4rem;
+  --s-9: 6rem;
+
+  /* --- Radius ------------------------------------------------------------
+     Three values, used consistently. Nothing is more rounded than a pill. */
+  --r-control: 8px;
+  --r-card: 12px;
+  --r-pill: 999px;
+
+  /* --- Motion ------------------------------------------------------------
+     Three speeds, so the page has rhythm: micro-feedback, state change, and
+     the one deliberate moment (hero entrance). */
+  --fast: 120ms;
+  --base: 200ms;
+  --slow: 420ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+
+  --nav-h: 60px;
+  --measure: 68ch;
+  --page: 1120px;
+}
+
+/* ==========================================================================
+   Reset
+   ========================================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+  /* Nav is fixed-height; anchor targets must clear it. */
+  scroll-padding-top: calc(var(--nav-h) + var(--s-5));
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: var(--step-1);
+  line-height: 1.65;
+  font-feature-settings: "kern", "liga", "cv11";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+p {
+  margin: 0;
+}
+
+a {
+  color: var(--accent);
+  text-decoration-color: var(--accent-line);
+  text-underline-offset: 3px;
+  transition: color var(--fast) var(--ease),
+    text-decoration-color var(--fast) var(--ease);
+}
+
+a:hover {
+  text-decoration-color: var(--accent);
+}
+
+img,
+svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+code,
+pre,
+kbd {
+  font-family: var(--mono);
+  font-size: 0.9em;
+}
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: var(--s-8) 0;
+}
+
+/* A visible, consistent focus ring. Keyboard users get it; pointer users do
+   not see it, because :focus-visible only matches for keyboard. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
+::selection {
+  background: var(--accent-dim);
+  color: var(--text);
+}
+
+/* ==========================================================================
+   Layout primitives
+   ========================================================================== */
+
+.page {
+  width: 100%;
+  max-width: var(--page);
+  margin-inline: auto;
+  padding-inline: var(--s-5);
+}
+
+@media (max-width: 640px) {
+  .page {
+    padding-inline: var(--s-4);
+  }
+}
+
+.section {
+  padding-block: var(--s-9);
+}
+
+.section--tight {
+  padding-block: var(--s-8);
+}
+
+/* Section header: the eyebrow is Level 4, the heading is Level 2. Nothing in
+   the section outranks them. */
+.eyebrow {
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: var(--s-3);
+}
+
+.lede {
+  color: var(--text-dim);
+  font-size: var(--step-2);
+  line-height: 1.5;
+  max-width: var(--measure);
+  text-wrap: pretty;
+}
+
+.prose {
+  max-width: var(--measure);
+  color: var(--text-dim);
+  text-wrap: pretty;
+}
+
+.prose > * + * {
+  margin-top: var(--s-4);
+}
+
+.prose strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+}
+
+.cluster {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  align-items: center;
+}
+
+/* ==========================================================================
+   Navigation
+   ========================================================================== */
+
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  height: var(--nav-h);
+  display: flex;
+  align-items: center;
+  background: rgba(10, 14, 26, 0.72);
+  backdrop-filter: saturate(160%) blur(12px);
+  -webkit-backdrop-filter: saturate(160%) blur(12px);
+  border-bottom: 1px solid transparent;
+  transition: border-color var(--base) var(--ease),
+    background var(--base) var(--ease);
+}
+
+/* The blur is always on, but the border only appears once content passes
+   underneath — otherwise the nav floats over the hero with nothing to separate
+   it from, which reads as an accident. */
+.nav[data-stuck="true"] {
+  border-bottom-color: var(--line);
+  background: rgba(10, 14, 26, 0.88);
+}
+
+.nav__inner {
+  display: flex;
+  align-items: center;
+  gap: var(--s-6);
+  width: 100%;
+}
+
+.nav__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin-right: auto;
+}
+
+/* The mark is the accent, and it is the one place the accent is used
+   decoratively — it is the brand, not a button. */
+.nav__mark {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+.nav__links {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+}
+
+.nav__link {
+  color: var(--text-dim);
+  text-decoration: none;
+  font-size: var(--step-0);
+  transition: color var(--fast) var(--ease);
+}
+
+.nav__link:hover {
+  color: var(--text);
+}
+
+.nav__link[aria-current="page"] {
+  color: var(--text);
+}
+
+@media (max-width: 780px) {
+  .nav__links {
+    gap: var(--s-4);
+  }
+
+  .nav__link[data-optional] {
+    display: none;
+  }
+}
+
+/* ==========================================================================
+   Buttons
+   Two variants only. The primary is near-white on dark rather than a saturated
+   accent fill — maximum contrast, no colour shouting — and the secondary is a
+   hairline outline.
+   ========================================================================== */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  height: 40px;
+  padding-inline: var(--s-4);
+  border-radius: var(--r-control);
+  border: 1px solid transparent;
+  font-family: inherit;
+  font-size: var(--step-0);
+  font-weight: 550;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--fast) var(--ease),
+    border-color var(--fast) var(--ease), color var(--fast) var(--ease),
+    transform var(--fast) var(--ease);
+}
+
+.btn:active {
+  transform: translateY(0.5px);
+}
+
+.btn--primary {
+  background: var(--text);
+  color: var(--bg);
+}
+
+.btn--primary:hover {
+  background: #fff;
+}
+
+.btn--ghost {
+  background: transparent;
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.btn--ghost:hover {
+  border-color: var(--text-dim);
+  background: var(--surface);
+}
+
+.btn--sm {
+  height: 32px;
+  padding-inline: var(--s-3);
+  font-size: var(--step--1);
+}
+
+/* ==========================================================================
+   Hero
+   Asymmetric on purpose: the claim gets 7 columns, the proof 5. The eye lands
+   on the headline, then falls to the image, then to the actions.
+   ========================================================================== */
+
+.hero {
+  padding-block: var(--s-9) var(--s-8);
+  border-bottom: 1px solid var(--line);
+}
+
+.hero__grid {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  gap: var(--s-8);
+  align-items: center;
+}
+
+@media (max-width: 900px) {
+  .hero__grid {
+    grid-template-columns: 1fr;
+    gap: var(--s-7);
+  }
+}
+
+.hero__title {
+  font-size: var(--step-5);
+  letter-spacing: -0.035em;
+  line-height: 1.04;
+}
+
+.hero__title em {
+  font-style: normal;
+  color: var(--text-dim);
+}
+
+.hero__sub {
+  margin-top: var(--s-5);
+  font-size: var(--step-2);
+  line-height: 1.5;
+  color: var(--text-dim);
+  max-width: 34ch;
+  text-wrap: pretty;
+}
+
+.hero__actions {
+  margin-top: var(--s-6);
+}
+
+.hero__note {
+  margin-top: var(--s-4);
+  font-size: var(--step--1);
+  color: var(--text-faint);
+}
+
+/* ==========================================================================
+   Render frame
+   Renders are the product, so they get a real frame: a hairline and a slight
+   surface lift. No glow, no tilt, no gradient border.
+   ========================================================================== */
+
+.frame {
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.frame img,
+.frame svg {
+  display: block;
+  width: 100%;
+}
+
+.frame--flush {
+  background: var(--bg-deep);
+}
+
+figcaption {
+  margin-top: var(--s-3);
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  color: var(--text-faint);
+}
+
+/* ==========================================================================
+   Figures — measured numbers
+   Tabular figures so columns of numbers align. The number is Level 1, the
+   label is Level 4.
+   ========================================================================== */
+
+.figures {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  overflow: hidden;
+}
+
+@media (max-width: 820px) {
+  .figures {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.figure {
+  background: var(--surface);
+  padding: var(--s-5);
+}
+
+.figure__value {
+  font-family: var(--mono);
+  font-size: var(--step-3);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+  color: var(--text);
+  line-height: 1.1;
+}
+
+.figure__label {
+  margin-top: var(--s-2);
+  font-size: var(--step--1);
+  color: var(--text-faint);
+}
+
+.figure__unit {
+  font-size: var(--step-0);
+  color: var(--text-dim);
+  letter-spacing: 0;
+}
+
+/* ==========================================================================
+   Cards
+   Border and surface only. The 1px gap grid uses the line colour as the
+   background so hairlines stay hairline-thin at any zoom.
+   ========================================================================== */
+
+.grid {
+  display: grid;
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  overflow: hidden;
+}
+
+.grid--2 {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.grid--3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+@media (max-width: 900px) {
+  .grid--3 {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .grid--2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.card {
+  background: var(--surface);
+  padding: var(--s-5);
+}
+
+.card__title {
+  font-size: var(--step-1);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.card__body {
+  margin-top: var(--s-2);
+  color: var(--text-dim);
+  font-size: var(--step-0);
+  text-wrap: pretty;
+}
+
+.card__meta {
+  margin-top: var(--s-3);
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  color: var(--text-faint);
+}
+
+/* ==========================================================================
+   Badges
+   One shape, three intents. Nothing else in the system is a pill.
+   ========================================================================== */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding-inline: var(--s-2);
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line-strong);
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.02em;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.badge--accent {
+  border-color: var(--accent-line);
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.badge--pro {
+  border-color: rgba(251, 191, 36, 0.3);
+  color: var(--warn);
+  background: rgba(251, 191, 36, 0.08);
+}
+
+/* ==========================================================================
+   Code
+   ========================================================================== */
+
+pre {
+  margin: 0;
+  padding: var(--s-4);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  overflow-x: auto;
+  font-size: var(--step-0);
+  line-height: 1.6;
+  color: var(--text);
+  tab-size: 2;
+}
+
+pre code {
+  font-size: inherit;
+}
+
+:not(pre) > code {
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+}
+
+.code-block {
+  position: relative;
+}
+
+.code-block__label {
+  position: absolute;
+  top: var(--s-2);
+  right: var(--s-3);
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  pointer-events: none;
+}
+
+/* ==========================================================================
+   Tables
+   ========================================================================== */
+
+.table-wrap {
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  overflow: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--step-0);
+}
+
+th,
+td {
+  text-align: left;
+  padding: var(--s-3) var(--s-4);
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+thead th {
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  background: var(--surface);
+  white-space: nowrap;
+}
+
+tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+td.num,
+th.num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ==========================================================================
+   Definition rows — used for limitations and the API surface
+   ========================================================================== */
+
+.deflist {
+  border-top: 1px solid var(--line);
+}
+
+.deflist__row {
+  display: grid;
+  grid-template-columns: 13rem 1fr;
+  gap: var(--s-5);
+  padding-block: var(--s-4);
+  border-bottom: 1px solid var(--line);
+}
+
+@media (max-width: 720px) {
+  .deflist__row {
+    grid-template-columns: 1fr;
+    gap: var(--s-2);
+  }
+}
+
+.deflist__key {
+  font-weight: 600;
+  font-size: var(--step-0);
+}
+
+.deflist__val {
+  color: var(--text-dim);
+  text-wrap: pretty;
+}
+
+/* ==========================================================================
+   Callout
+   The one place a background tint is allowed, because it marks a caveat the
+   reader must not skim past.
+   ========================================================================== */
+
+.callout {
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--accent);
+  border-radius: 0 var(--r-control) var(--r-control) 0;
+  background: var(--surface);
+  padding: var(--s-4) var(--s-5);
+  color: var(--text-dim);
+}
+
+.callout strong {
+  color: var(--text);
+}
+
+.callout--warn {
+  border-left-color: var(--warn);
+}
+
+/* ==========================================================================
+   Playground controls
+   ========================================================================== */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.field__label {
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+textarea,
+input[type="text"],
+select {
+  width: 100%;
+  padding: var(--s-3);
+  background: var(--bg-deep);
+  color: var(--text);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-control);
+  font-family: var(--mono);
+  font-size: var(--step-0);
+  line-height: 1.6;
+  resize: vertical;
+  transition: border-color var(--fast) var(--ease);
+}
+
+textarea:focus,
+input[type="text"]:focus,
+select:focus {
+  outline: none;
+  border-color: var(--accent-line);
+}
+
+.status {
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  color: var(--text-faint);
+}
+
+.status[data-tone="ok"] {
+  color: var(--good);
+}
+
+.status[data-tone="bad"] {
+  color: var(--bad);
+}
+
+/* ==========================================================================
+   Footer
+   ========================================================================== */
+
+.footer {
+  border-top: 1px solid var(--line);
+  margin-top: var(--s-8);
+  padding-block: var(--s-7) var(--s-6);
+}
+
+.footer__inner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-5);
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.footer__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-5);
+  font-size: var(--step-0);
+}
+
+.footer__links a {
+  color: var(--text-dim);
+  text-decoration: none;
+}
+
+.footer__links a:hover {
+  color: var(--text);
+}
+
+.footer__note {
+  font-size: var(--step--1);
+  color: var(--text-faint);
+}
+
+/* ==========================================================================
+   Motion
+   One entrance, applied once per element. Everything else is a hover.
+   ========================================================================== */
+
+.reveal {
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity var(--slow) var(--ease),
+    transform var(--slow) var(--ease);
+}
+
+.reveal[data-shown="true"] {
+  opacity: 1;
+  transform: none;
+}
+
+/* The system is only usable if it respects this. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .reveal {
+    opacity: 1;
+    transform: none;
+  }
+}

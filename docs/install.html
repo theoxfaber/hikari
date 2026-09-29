@@ -1,39 +1,170 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Install — Hikari</title>
-<link rel="stylesheet" href="style.css"></head>
+<meta name="color-scheme" content="dark">
+<link rel="stylesheet" href="style.css">
+</head>
 <body>
-<nav><a class="logo" href="index.html">hikari</a>
-<a href="index.html">Home</a><a class="me" href="install.html">Install</a><a href="api.html">API</a><a href="benchmarks.html">Benchmarks</a><a href="pricing.html">Pricing</a><a href="playground.html">Playground</a></nav>
-<div class="wrap">
-<h1>Install</h1>
-<h2>Rust</h2>
+
+<header class="nav" id="nav">
+  <div class="page nav__inner">
+    <a class="nav__brand" href="index.html"><span class="nav__mark" aria-hidden="true"></span> hikari</a>
+    <nav class="nav__links" aria-label="Primary">
+      <a class="nav__link" href="install.html" data-optional aria-current="page">Install</a>
+      <a class="nav__link" href="api.html" data-optional>API</a>
+      <a class="nav__link" href="benchmarks.html">Benchmarks</a>
+      <a class="nav__link" href="pricing.html" data-optional>Pricing</a>
+      <a class="nav__link" href="playground.html">Playground</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="section">
+    <div class="page" style="max-width:820px">
+      <p class="eyebrow">Getting started</p>
+      <h1 style="font-size:var(--step-4)">Install</h1>
+      <p class="lede" style="margin-top:var(--s-4)">
+        No system dependencies. The only runtime requirement for correct text is
+        Rust 1.78 or newer; the CJK fallback is optional.
+      </p>
+    </div>
+  </section>
+
+  <section class="section--tight">
+    <div class="page" style="max-width:820px">
+      <div class="stack">
+        <div class="code-block">
+          <span class="code-block__label">rust</span>
 <pre><code>cargo add hikari-rs
-# just the pieces you need:
+
+# or only the pieces you need:
 cargo add hikari-rs-core hikari-rs-pdf</code></pre>
-<h2>Node.js</h2>
-<pre><code>npm i @hikari-rs/node
-node -e "const hk = require('@hikari-rs/node');
-const png = hk.renderPngSync(JSON.stringify(tree), 1200, 630);"</code></pre>
-<p class="mut">Prebuilt for macOS, Linux (glibc + musl) and Windows on x64 + ARM64.
-Pro PDF reads <code>HIKARI_LICENSE</code> / <code>HIKARI_PUBKEY</code> from the environment.</p>
-<h2>Browser / edge workers</h2>
-<pre><code>import init, { render_png } from './playground/pkg/hikari_wasm.js';
+        </div>
+
+        <div class="code-block">
+          <span class="code-block__label">node</span>
+<pre><code>npm i @hikari-rs/node</code></pre>
+        </div>
+
+        <div class="callout">
+          <p>
+            <strong>Prebuilt binaries</strong> cover macOS, Linux (glibc and musl)
+            and Windows on x64 and ARM64. If your platform is not there, the
+            <code>napi</code> CLI builds it from source in a few minutes.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="page" style="max-width:820px">
+      <p class="eyebrow">First render</p>
+      <h2>From Node.js</h2>
+      <div class="code-block" style="margin-top:var(--s-5)">
+        <span class="code-block__label">javascript</span>
+<pre><code>const hikari = require('@hikari-rs/node');
+
+const tree = JSON.stringify({
+  Container: {
+    style: { width: 1200, height: 630, background: '#0b1020' },
+    children: [
+      { Text: { text: 'Hello', style: { font_size: 84, color: '#ffffff' } } },
+    ],
+  },
+});
+
+require('node:fs').writeFileSync('og.png', hikari.renderPngSync(tree, 1200, 630));</code></pre>
+      </div>
+
+      <p class="prose" style="margin-top:var(--s-4)">
+        Every style field is optional and colours take CSS strings. See the
+        <a href="api.html">API page</a> for the full shape.
+      </p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="page" style="max-width:820px">
+      <p class="eyebrow">Browser and edge</p>
+      <h2>WebAssembly</h2>
+      <div class="code-block" style="margin-top:var(--s-5)">
+        <span class="code-block__label">javascript</span>
+<pre><code>import init, { render_png, register_font } from './playground/pkg/hikari_wasm.js';
+
 await init();
-const pngBytes = render_png(JSON.stringify(tree), 1200, 630); // Uint8Array</code></pre>
-<h2>From source</h2>
+
+const png = render_png(JSON.stringify(tree), 1200, 630);   // Uint8Array</code></pre>
+      </div>
+      <p class="prose" style="margin-top:var(--s-4)">
+        The dependency tree is pure Rust with no C zlib anywhere, so nothing
+        needs a cross-compiled sysroot. The release build is about 2.8&nbsp;MB.
+        <a href="playground.html">The playground</a> is this build, running in
+        this page.
+      </p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="page" style="max-width:820px">
+      <p class="eyebrow">Working on the engine</p>
+      <h2>From source</h2>
+      <div class="code-block" style="margin-top:var(--s-5)">
+        <span class="code-block__label">shell</span>
 <pre><code>git clone https://github.com/theoxfaber/hikari && cd hikari
-cargo test --workspace          # 60+ tests
+
+cargo test --workspace --exclude hikari-rs-node   # 87 tests
 cargo run -p hikari-rs --example card
-node npm/test.mjs               # needs npm/hikari-node.node built (see below)</code></pre>
-<h2>Build the Node binding locally</h2>
-<pre><code>cargo build -p hikari-rs-node
-cp target/debug/libhikari_node.dylib npm/hikari-node.node  # .dll/.so per OS
+
+# the Node binding needs Node's symbols, so it is tested through Node
+cargo build --release -p hikari-rs-node
+cp target/release/libhikari_node.dylib npm/hikari-node.node
 node npm/test.mjs</code></pre>
-<p class="mut">Requires Rust 1.78+. No system dependencies — everything is pure Rust
-except the optional system CJK fallback fonts at runtime.</p>
-</div>
-<footer>hikari — boring dependencies, measured numbers.</footer>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="page" style="max-width:820px">
+      <p class="eyebrow">Pro features</p>
+      <h2>Licence keys</h2>
+      <p class="prose" style="margin-top:var(--s-4)">
+        Motion and PDF read their key material from the environment, so you keep
+        your own signing infrastructure and the library makes no network calls.
+      </p>
+      <div class="code-block" style="margin-top:var(--s-5)">
+        <span class="code-block__label">shell</span>
+<pre><code>export HIKARI_LICENSE='hk1.…'
+export HIKARI_PUBKEY='&lt;64 hex chars&gt;'</code></pre>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="page footer__inner">
+    <p class="footer__note">Hikari — boring dependencies, published numbers, stated limitations.</p>
+    <nav class="footer__links" aria-label="Footer">
+      <a href="index.html">Home</a>
+      <a href="api.html">API</a>
+      <a href="benchmarks.html">Benchmarks</a>
+      <a href="pricing.html">Pricing</a>
+      <a href="playground.html">Playground</a>
+      <a href="https://github.com/theoxfaber/hikari">GitHub</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+  var nav = document.getElementById('nav');
+  var onScroll = function () { nav.dataset.stuck = String(window.scrollY > 8); };
+  onScroll();
+  window.addEventListener('scroll', onScroll, { passive: true });
+</script>
+
 </body>
 </html>

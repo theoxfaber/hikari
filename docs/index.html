@@ -1,33 +1,301 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Hikari — images, SVG, animations, PDFs from layout trees</title>
-<link rel="stylesheet" href="style.css"></head>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hikari — render images, SVG and PDF from layout trees</title>
+<meta name="description" content="A pure-Rust render engine. One node tree in, PNG, SVG, animated GIF, WebP and PDF with selectable text out. No browser, no forked dependencies.">
+<meta name="color-scheme" content="dark">
+<link rel="stylesheet" href="style.css">
+</head>
 <body>
-<nav><a class="logo" href="index.html">hikari</a>
-<a class="me" href="index.html">Home</a><a href="install.html">Install</a><a href="api.html">API</a><a href="benchmarks.html">Benchmarks</a><a href="pricing.html">Pricing</a><a href="playground.html">Playground</a></nav>
-<div class="wrap">
-<h1>OG images, SVG, GIF, and PDFs from layout trees.<br>No browser.</h1>
-<p class="mut">Hikari is a pure-Rust render engine: one JSON-serializable node tree in,
-PNG / SVG / GIF / APNG / WebP / PDF out — on servers, in Node.js, and in the
-browser via WebAssembly. Upstream-only dependencies, offline everything.</p>
-<p><a class="btn" href="playground.html">Try it live — runs 100% in your browser</a>
-<a class="btn ghost" href="install.html">Install in 60 seconds</a></p>
+
+<header class="nav" id="nav">
+  <div class="page nav__inner">
+    <a class="nav__brand" href="index.html">
+      <span class="nav__mark" aria-hidden="true"></span>
+      hikari
+    </a>
+    <nav class="nav__links" aria-label="Primary">
+      <a class="nav__link" href="install.html" data-optional>Install</a>
+      <a class="nav__link" href="api.html" data-optional>API</a>
+      <a class="nav__link" href="benchmarks.html">Benchmarks</a>
+      <a class="nav__link" href="pricing.html" data-optional>Pricing</a>
+      <a class="nav__link" href="playground.html">Playground</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+  <!-- 1. Claim. One idea, stated once. -->
+  <section class="hero">
+    <div class="page hero__grid">
+      <div>
+        <h1 class="hero__title">Images from layout trees.<br><em>No browser.</em></h1>
+        <p class="hero__sub">
+          A pure-Rust render engine. One node tree in — PNG, SVG, animated
+          GIF, WebP and PDF with selectable text out. Runs natively, in Node.js,
+          and in the browser.
+        </p>
+        <div class="cluster hero__actions">
+          <a class="btn btn--primary" href="playground.html">Try it in the browser</a>
+          <a class="btn btn--ghost" href="install.html">Install</a>
+        </div>
+        <p class="hero__note">
+          Open core, MIT&nbsp;/&nbsp;Apache-2.0. No forked dependencies, no network calls.
+        </p>
+      </div>
+
+      <!-- The proof sits next to the claim, not below it, so the claim is never
+           read on its own. -->
+      <figure>
+        <div class="frame frame--flush">
+          <img src="img/typefaces.png" width="1200" height="630"
+               alt="The same card rendered twice: once in the embedded DejaVu subset, once in a caller-registered serif typeface.">
+        </div>
+        <figcaption>Caller-supplied fonts, inherited through the tree</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- 2. Install, immediately. If they came to evaluate, this is what they
+          need before anything else on the page matters. -->
+  <section class="section--tight">
+    <div class="page">
+      <div class="code-block">
+        <span class="code-block__label">shell</span>
 <pre><code>cargo add hikari-rs
-# or: npm i @hikari-rs/node</code></pre>
-<div class="grid2">
-<div class="card"><b>PNG / SVG / WebP</b><br><span class="mut">Flex, grid, shaped multilingual text, gradients, shadows, images.</span></div>
-<div class="card"><b>GIF / APNG motion</b><br><span class="mut">Parallel frames, looping encoders (Pro).</span></div>
-<div class="card"><b>PDF documents</b><br><span class="mut">Selectable text, subset fonts, outlines, links, attachments, pagination (Pro).</span></div>
-<div class="card"><b>Everywhere Rust runs</b><br><span class="mut">Native, Node.js bindings, 2.7MB WASM, Linux-checked.</span></div>
-</div>
-<h2>Measured, not claimed</h2>
-<p>Same 1200×630 card vs the leading alternative: warm <b>8.7 vs 7.1ms</b>,
-cold tied at 14ms, WASM <b>2.66 vs 3.82MB</b>. Full methodology in
-<a href="benchmarks.html">Benchmarks</a> — including the gaps we still lose.</p>
-<p class="mut">Open core (MIT/Apache-2.0) · Motion + PDF are source-available Pro ·
-<a href="https://github.com/theoxfaber/hikari">GitHub</a></p>
-</div>
-<footer>hikari — boring dependencies, measured numbers.</footer>
+# or
+npm i @hikari-rs/node</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. Proof: measured, with the machine named. -->
+  <section class="section">
+    <div class="page">
+      <p class="eyebrow">Measured, not claimed</p>
+      <h2>Numbers, and where they came from</h2>
+      <p class="lede" style="margin-top:var(--s-4)">
+        Apple M2, macOS ARM64, rustc 1.98, release profile. Every figure in the
+        project is published with the machine that produced it — including the
+        ones that are unflattering.
+      </p>
+
+      <div class="figures" style="margin-top:var(--s-7)">
+        <div class="figure">
+          <div class="figure__value">3.69<span class="figure__unit"> ms</span></div>
+          <div class="figure__label">Warm render, 1200×630 PNG</div>
+        </div>
+        <div class="figure">
+          <div class="figure__value">14.3<span class="figure__unit"> ms</span></div>
+          <div class="figure__label">First render in a process</div>
+        </div>
+        <div class="figure">
+          <div class="figure__value">369<span class="figure__unit"> KB</span></div>
+          <div class="figure__label">Embedded font, shaping intact</div>
+        </div>
+        <div class="figure">
+          <div class="figure__value">0</div>
+          <div class="figure__label">unsafe blocks in the workspace</div>
+        </div>
+      </div>
+
+      <p class="prose" style="margin-top:var(--s-5)">
+        Output is byte-identical across platforms — the same SHA-256 on macOS
+        and Linux — which is what makes the renderer snapshot-testable at all.
+        <a href="benchmarks.html">Full benchmarks, methodology and corrections&nbsp;→</a>
+      </p>
+    </div>
+  </section>
+
+  <!-- 4. Capability. Real engine output, not illustrations. -->
+  <section class="section">
+    <div class="page">
+      <p class="eyebrow">Output</p>
+      <h2>Real renders, not mockups</h2>
+      <p class="lede" style="margin-top:var(--s-4)">
+        Every image below was produced by the engine at build time. Nothing here
+        is a design asset.
+      </p>
+
+      <div class="grid grid--2" style="margin-top:var(--s-7)">
+        <figure style="margin:0">
+          <div class="frame frame--flush">
+            <img src="img/card.png" width="1200" height="630"
+                 alt="A card using CSS grid, a rounded-clipped image, a border ring and wrapped text.">
+          </div>
+          <figcaption>Grid, rounded image clip, border ring, wrapping</figcaption>
+        </figure>
+        <figure style="margin:0">
+          <div class="frame frame--flush">
+            <img src="img/multilingual.png" width="1200" height="630"
+                 alt="Latin, joined Arabic, Persian, Hebrew and CJK rendered on separate lines.">
+          </div>
+          <figcaption>Arabic and Persian joined; CJK via system fallback</figcaption>
+        </figure>
+        <figure style="margin:0">
+          <div class="frame frame--flush">
+            <img src="img/clip-text.png" width="1200" height="630"
+                 alt="Text painted with a gradient fill through a background-clip effect.">
+          </div>
+          <figcaption>background-clip: text, gradient through glyphs</figcaption>
+        </figure>
+        <figure style="margin:0">
+          <div class="frame frame--flush">
+            <img src="img/gradient.png" width="1200" height="630"
+                 alt="A wide banner with a vertical gradient background.">
+          </div>
+          <figcaption>Linear gradients</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5. What it does, and the honest boundary of it. -->
+  <section class="section">
+    <div class="page">
+      <p class="eyebrow">Scope</p>
+      <h2>What it does, and where it stops</h2>
+
+      <div class="grid grid--3" style="margin-top:var(--s-7)">
+        <div class="card">
+          <div class="card__title">Layout and paint</div>
+          <p class="card__body">
+            Flex, grid and block flow. Gradients, box shadows, rounded clips,
+            images with decode caching.
+          </p>
+          <p class="card__meta">Free</p>
+        </div>
+        <div class="card">
+          <div class="card__title">Text</div>
+          <p class="card__body">
+            Real OpenType shaping: joining, kerning and ligatures. Bidi, word
+            wrap, balanced headlines, fit-to-width.
+          </p>
+          <p class="card__meta">Free</p>
+        </div>
+        <div class="card">
+          <div class="card__title">Documents</div>
+          <p class="card__body">
+            PDF with selectable text, outlines, link annotations, attachments
+            and pagination.
+          </p>
+          <p class="card__meta"><span class="badge badge--pro">Pro</span></p>
+        </div>
+        <div class="card">
+          <div class="card__title">Motion</div>
+          <p class="card__body">
+            Animated GIF and APNG, frames rendered in parallel.
+          </p>
+          <p class="card__meta"><span class="badge badge--pro">Pro</span></p>
+        </div>
+        <div class="card">
+          <div class="card__title">Fonts</div>
+          <p class="card__body">
+            An embedded subset by default, plus caller-supplied fonts by id,
+            inherited through the tree.
+          </p>
+          <p class="card__meta">Free</p>
+        </div>
+        <div class="card">
+          <div class="card__title">Runtimes</div>
+          <p class="card__body">
+            Rust, Node.js via napi, and WebAssembly. No C zlib anywhere in the
+            dependency tree.
+          </p>
+          <p class="card__meta">Free</p>
+        </div>
+      </div>
+
+      <div class="callout" style="margin-top:var(--s-6)">
+        <p>
+          <strong>Two things to know before you rely on it.</strong>
+          The shaper, <code>rustybuzz</code>, is declared unmaintained upstream,
+          as is <code>ttf-parser</code>; migrating to the
+          <code>fontations</code> stack is the project's top open item.
+          And CJK falls back to a system font, so byte-identical output holds
+          for every script the embedded font covers but not for CJK.
+          Both are documented, with the rest, in the README's limitations.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6. Try. The action, once, at the end of the argument. -->
+  <section class="section">
+    <div class="page">
+      <div class="grid grid--2">
+        <div class="card" style="padding:var(--s-6)">
+          <div class="card__title">See it render</div>
+          <p class="card__body">
+            The playground runs the WebAssembly build in this page. No account,
+            no upload, nothing leaves the browser.
+          </p>
+          <div style="margin-top:var(--s-5)">
+            <a class="btn btn--primary" href="playground.html">Open the playground</a>
+          </div>
+        </div>
+        <div class="card" style="padding:var(--s-6)">
+          <div class="card__title">Read the source</div>
+          <p class="card__body">
+            The whole engine is in the repository, including the font subsetter
+            and the licensing check. Nothing is obfuscated.
+          </p>
+          <div style="margin-top:var(--s-5)">
+            <a class="btn btn--ghost" href="https://github.com/theoxfaber/hikari">GitHub</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="footer">
+  <div class="page footer__inner">
+    <p class="footer__note">
+      Hikari — boring dependencies, published numbers, stated limitations.
+    </p>
+    <nav class="footer__links" aria-label="Footer">
+      <a href="install.html">Install</a>
+      <a href="api.html">API</a>
+      <a href="benchmarks.html">Benchmarks</a>
+      <a href="pricing.html">Pricing</a>
+      <a href="playground.html">Playground</a>
+      <a href="https://github.com/theoxfaber/hikari">GitHub</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+  // The nav border appears only once content is actually underneath it.
+  var nav = document.getElementById('nav');
+  var onScroll = function () {
+    nav.dataset.stuck = String(window.scrollY > 8);
+  };
+  onScroll();
+  window.addEventListener('scroll', onScroll, { passive: true });
+
+  // One entrance, once per element. Skipped entirely under reduced motion.
+  if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches &&
+      'IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          entry.target.dataset.shown = 'true';
+          io.unobserve(entry.target);
+        }
+      });
+    }, { rootMargin: '0px 0px -8% 0px' });
+
+    document.querySelectorAll('.section, .hero__grid > *').forEach(function (el) {
+      el.classList.add('reveal');
+      io.observe(el);
+    });
+  }
+</script>
+
 </body>
 </html>

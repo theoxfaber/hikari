@@ -1,37 +1,264 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Benchmarks — Hikari</title>
-<link rel="stylesheet" href="style.css"></head>
+<meta name="color-scheme" content="dark">
+<link rel="stylesheet" href="style.css">
+</head>
 <body>
-<nav><a class="logo" href="index.html">hikari</a>
-<a href="index.html">Home</a><a href="install.html">Install</a><a href="api.html">API</a><a class="me" href="benchmarks.html">Benchmarks</a><a href="pricing.html">Pricing</a><a href="playground.html">Playground</a></nav>
-<div class="wrap">
-<h1>Benchmarks</h1>
-<p>Same 1200×630 card (dark bg, gradient hero, heading, wrapped paragraph),
-Apple Silicon, Node 26, release builds. Scripts: <code>npm/bench.mjs</code>.
-We publish the gaps we lose, too.</p>
-<table>
-<tr><th>Metric</th><th>Leading alternative</th><th>Hikari</th></tr>
-<tr><td>Cold render</td><td>~14.0 ms</td><td>~14.0 ms (tied)</td></tr>
-<tr><td>Warm render</td><td>~7.1 ms</td><td>~8.7 ms</td></tr>
-<tr><td>PNG bytes</td><td>26,954</td><td>43,149</td></tr>
-<tr><td>Peak RSS, one render</td><td>~67.7 MB</td><td>~85.4 MB</td></tr>
-<tr><td>WASM raw / gzip</td><td>3.82MB / —</td><td><b>2.66MB / 1.07MB</b></td></tr>
-</table>
-<h2>Encoder trade-off curve (same card, release)</h2>
-<table>
-<tr><th>PNG setting</th><th>Bytes</th><th>Warm</th></tr>
-<tr><td>tiny-skia default (old)</td><td>117,760</td><td>2.3 ms (debug, weak compression)</td></tr>
-<tr><td>Best + Adaptive</td><td>~44,000</td><td>~300 ms — rejected</td></tr>
-<tr><td><b>Default + Adaptive + RGB-strip (shipped)</b></td><td><b>43,100</b></td><td><b>~10.5 ms</b></td></tr>
-<tr><td>Fast + Adaptive</td><td>74,081</td><td>~3.9 ms — rejected (size)</td></tr>
-</table>
-<p>Filter-trial (oxipng-style) was measured and rejected: all filters bottom
-out at ~44KB on our pixels, so the rival's 27KB is content-side, not
-encoder-side. PDF invoices: <b>17KB</b> with subset fonts. Full methodology
-and history in <code>BENCHMARKS.md</code> in the repo.</p>
-</div>
-<footer>hikari — boring dependencies, measured numbers.</footer>
+
+<header class="nav" id="nav">
+  <div class="page nav__inner">
+    <a class="nav__brand" href="index.html"><span class="nav__mark" aria-hidden="true"></span> hikari</a>
+    <nav class="nav__links" aria-label="Primary">
+      <a class="nav__link" href="install.html" data-optional>Install</a>
+      <a class="nav__link" href="api.html" data-optional>API</a>
+      <a class="nav__link" href="benchmarks.html" aria-current="page">Benchmarks</a>
+      <a class="nav__link" href="pricing.html" data-optional>Pricing</a>
+      <a class="nav__link" href="playground.html">Playground</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="section">
+    <div class="page" style="max-width:860px">
+      <p class="eyebrow">Measurement</p>
+      <h1 style="font-size:var(--step-4)">Benchmarks</h1>
+      <p class="lede" style="margin-top:var(--s-4)">
+        Apple M2, macOS ARM64, rustc 1.98, release profile
+        (<code>lto = true</code>, <code>codegen-units = 1</code>). Reference
+        card: 1200×630, gradient background, two text runs, one wrapping.
+        Reproduce with <code>cargo bench -p hikari-rs --bench render</code>.
+      </p>
+    </div>
+  </section>
+
+  <section class="section--tight">
+    <div class="page" style="max-width:860px">
+      <div class="figures">
+        <div class="figure">
+          <div class="figure__value">3.69<span class="figure__unit"> ms</span></div>
+          <div class="figure__label">Warm render, full PNG</div>
+        </div>
+        <div class="figure">
+          <div class="figure__value">14.3<span class="figure__unit"> ms</span></div>
+          <div class="figure__label">First render in a process</div>
+        </div>
+        <div class="figure">
+          <div class="figure__value">0.10<span class="figure__unit"> ms</span></div>
+          <div class="figure__label">Warm layout only</div>
+        </div>
+        <div class="figure">
+          <div class="figure__value">3.06<span class="figure__unit"> ms</span></div>
+          <div class="figure__label">Warm paint to RGBA</div>
+        </div>
+      </div>
+      <p class="prose" style="margin-top:var(--s-5)">
+        Cold start is dominated by first-touch font rasterization, which is what
+        the build-time subset and the glyph bitmap cache exist to reduce.
+      </p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="page" style="max-width:860px">
+      <p class="eyebrow">Output size</p>
+      <h2>What the engine produces</h2>
+      <div class="table-wrap" style="margin-top:var(--s-5)">
+        <table>
+          <thead>
+            <tr><th>Artifact</th><th class="num">Bytes</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Gradient banner</td><td class="num">13,077</td></tr>
+            <tr><td>Determinism reference card</td><td class="num">21,649</td></tr>
+            <tr><td>Multilingual card</td><td class="num">29,788</td></tr>
+            <tr><td>Grid card with image</td><td class="num">57,931</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="page" style="max-width:860px">
+      <p class="eyebrow">PNG encoder</p>
+      <h2>The trade-off curve</h2>
+      <p class="prose" style="margin-top:var(--s-4)">
+        Encoder settings trade bytes against time. The rejected rows are recorded
+        so the choice is reproducible rather than asserted.
+      </p>
+      <div class="table-wrap" style="margin-top:var(--s-5)">
+        <table>
+          <thead>
+            <tr><th>Setting</th><th class="num">Bytes</th><th class="num">Time</th><th></th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>tiny-skia</code> default</td>
+              <td class="num">117,760</td><td class="num">2.3 ms</td>
+              <td>superseded</td>
+            </tr>
+            <tr>
+              <td>Best + Adaptive</td>
+              <td class="num">~44,000</td><td class="num">~300 ms</td>
+              <td>rejected — 100× slower for 1 KB</td>
+            </tr>
+            <tr>
+              <td><strong>Default + Adaptive + RGB-strip</strong></td>
+              <td class="num"><strong>43,100</strong></td><td class="num"><strong>~10.5 ms</strong></td>
+              <td><strong>shipped</strong></td>
+            </tr>
+            <tr>
+              <td>Fast + Adaptive</td>
+              <td class="num">74,081</td><td class="num">~3.9 ms</td>
+              <td>rejected — size</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="prose" style="margin-top:var(--s-4)">
+        A filter-trial experiment, trying every filter at two levels, floors out
+        around 44 KB on these pixels, so the remaining gap is content-side —
+        gradient smoothness and anti-aliasing — not encoder-side. The trial was
+        rejected: all cost, no gain.
+      </p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="page" style="max-width:860px">
+      <p class="eyebrow">Determinism</p>
+      <h2>Same bytes, every platform</h2>
+      <p class="prose" style="margin-top:var(--s-4)">
+        This is the property that makes golden-image testing possible for anyone
+        downstream, so it is gated in CI. The expected digests live in
+        <code>crates/hikari/tests/determinism.sha256</code> and the render fails
+        the build if it drifts.
+      </p>
+      <div class="table-wrap" style="margin-top:var(--s-5)">
+        <table>
+          <thead>
+            <tr><th>Target</th><th class="num">PNG</th><th class="num">SVG</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>macOS ARM64</td>
+              <td class="num">21,649 B</td><td class="num">738 B</td>
+            </tr>
+            <tr>
+              <td>Linux x86_64</td>
+              <td class="num">21,649 B</td><td class="num">738 B</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout" style="margin-top:var(--s-5)">
+        <p>
+          <strong>These digests changed in v0.18, and the old ones were wrong.</strong>
+          The embedded font subset was dropping <code>GSUB</code>,
+          <code>GPOS</code> and <code>GDEF</code>, and the paint path was
+          looking glyphs up by source character instead of by the id the shaper
+          chose. Kerning and ligatures now actually apply, so glyph positions
+          moved and the bytes moved with them.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="page" style="max-width:860px">
+      <p class="eyebrow">Corrections</p>
+      <h2>Where this document has been wrong</h2>
+      <p class="prose" style="margin-top:var(--s-4)">
+        Kept deliberately. A benchmark document that has never been wrong has
+        probably not been measuring anything.
+      </p>
+      <div class="deflist" style="margin-top:var(--s-5)">
+        <div class="deflist__row">
+          <div class="deflist__key">v0.7</div>
+          <div class="deflist__val">
+            Claimed a large speed advantage. It came from a debug build with
+            weak compression. Withdrawn; the numbers here are release numbers.
+          </div>
+        </div>
+        <div class="deflist__row">
+          <div class="deflist__key">v0.13</div>
+          <div class="deflist__val">
+            Recorded a “kerning/ligature tradeoff” as an accepted cost of font
+            subsetting. It was not a tradeoff — the subsetter was dropping the
+            layout tables, so both were silently absent. Fixed in v0.18.
+          </div>
+        </div>
+        <div class="deflist__row">
+          <div class="deflist__key">v0.18</div>
+          <div class="deflist__val">
+            Corrected the determinism digests, for the reason above.
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="page" style="max-width:860px">
+      <p class="eyebrow">Still to improve</p>
+      <h2>Known weak spots</h2>
+      <div class="deflist" style="margin-top:var(--s-5)">
+        <div class="deflist__row">
+          <div class="deflist__key">Cold start</div>
+          <div class="deflist__val">
+            14.3 ms against 3.69 ms warm. A smaller embedded font or a glyph
+            cache shared across processes would help; neither is done.
+          </div>
+        </div>
+        <div class="deflist__row">
+          <div class="deflist__key">Card output size</div>
+          <div class="deflist__val">
+            57,931 bytes is larger than the encoder curve suggests for a mostly
+            flat image. Gradient banding is the suspected cause and it is
+            unmeasured.
+          </div>
+        </div>
+        <div class="deflist__row">
+          <div class="deflist__key">Coverage</div>
+          <div class="deflist__val">
+            One machine, one card. A real corpus would separate text-heavy,
+            image-heavy and document workloads.
+          </div>
+        </div>
+      </div>
+      <p class="prose" style="margin-top:var(--s-6)">
+        Full methodology, per-environment tables and the history behind each
+        figure are in <code>BENCHMARKS.md</code> in the repository.
+      </p>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="page footer__inner">
+    <p class="footer__note">Hikari — boring dependencies, published numbers, stated limitations.</p>
+    <nav class="footer__links" aria-label="Footer">
+      <a href="index.html">Home</a>
+      <a href="install.html">Install</a>
+      <a href="api.html">API</a>
+      <a href="pricing.html">Pricing</a>
+      <a href="playground.html">Playground</a>
+      <a href="https://github.com/theoxfaber/hikari">GitHub</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+  var nav = document.getElementById('nav');
+  var onScroll = function () { nav.dataset.stuck = String(window.scrollY > 8); };
+  onScroll();
+  window.addEventListener('scroll', onScroll, { passive: true });
+</script>
+
 </body>
 </html>
