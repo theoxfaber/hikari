@@ -176,6 +176,11 @@ Enforcement is honest: a key check plus commercial terms, no DRM theater.
 - [ ] masks/filters/shadows/blend
 - [ ] `lightningcss` style parsing, remote asset preload helper
 - [ ] WebP/GIF animation encoding, NAPI + WASM bindings
+- [ ] **Migrate off `rustybuzz` and `ttf-parser`** — both are now declared
+      unmaintained (RUSTSEC-2026-0206, RUSTSEC-2026-0192). The destination is
+      Google Fonts' `fontations` (`skrifa` / `write-fonts`). This is the largest
+      outstanding piece of technical debt and the only reason the project
+      depends on abandoned code in its most critical path.
 - [ ] Bundled OFL CJK + Hebrew-covering fonts, replacing system-font fallback
 - [ ] Golden-image corpus beyond the single determinism card
 - [ ] `criterion` regression *gates* (CI currently smoke-runs benches; shared

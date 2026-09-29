@@ -80,6 +80,11 @@ kerns, and Arabic and Persian join into connected letterforms.
   unfinished. The README now describes what CI actually does.
 
 ### Known gaps
+- **`rustybuzz` and `ttf-parser` are both declared unmaintained**
+  (RUSTSEC-2026-0206, RUSTSEC-2026-0192). The shaper sits in the most critical
+  path in the project, so this is the top item on the roadmap. `cargo deny`
+  ignores both advisories with a written reason rather than tolerating them
+  silently; the destination is Google Fonts' `fontations`.
 - **Hebrew does not join.** DejaVu Sans has no Hebrew presentation forms, so
   even the unshaded source font renders isolated letters. Font coverage, not a
   subsetting bug; a test asserts the subset matches the source so the two are

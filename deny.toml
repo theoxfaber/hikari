@@ -2,8 +2,43 @@
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
 
+# `ttf-parser` is declared unmaintained by its author (RUSTSEC-2026-0192).
+#
+# We depend on it directly in hikari-core/hikari-raster/hikari-pdf, but
+# replacing those call sites with `skrifa` would NOT clear the advisory:
+# `rustybuzz` (our shaper) and `fontdue` (our rasterizer) both depend on
+# ttf-parser themselves, so it stays in the tree transitively no matter what we
+# do. Warning rather than failing keeps the signal visible without pretending a
+# direct-dependency swap fixes something it cannot.
+#
+# Revisit when rustybuzz moves to skrifa; that is the change that actually
+# retires this.
+unmaintained = "all"
+
+# Ignored explicitly, with a reason, rather than by lowering a severity knob.
+# This keeps the exception visible in the config and in every `cargo deny`
+# report instead of quietly weakening the gate for everything else.
+ignore = [
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser is declared unmaintained. We depend on it directly, but swapping our call sites for skrifa would not clear it: rustybuzz and fontdue both depend on ttf-parser transitively. Revisit when rustybuzz migrates." },
+    { id = "RUSTSEC-2026-0206", reason = "rustybuzz is declared unmaintained. This is our shaper and the highest-risk dependency we have. The whole ecosystem is consolidating on Google Fonts' fontations (skrifa/write-fonts), which is the intended destination. Tracked on the roadmap; this is the single most important piece of technical debt in the project." },
+]
+
 [licenses]
-allow = ["MIT", "Apache-2.0", "BSD-3-Clause", "ISC", "Unicode-DFS-2016", "OFL-1.1"]
+# Everything here is permissive and compatible with this project's
+# MIT OR Apache-2.0. The list is the union of what the current tree needs --
+# cargo-deny fails the build on anything not named, which is the point, so add
+# deliberately rather than switching to a blanket allow.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "OFL-1.1",
+]
 confidence-threshold = 0.8
 
 [bans]

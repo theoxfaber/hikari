@@ -26,7 +26,9 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
       - name: install wasm-bindgen-cli
-        run: cargo install wasm-bindgen-cli --version 0.2 --locked
+        # Must match the wasm-bindgen version in Cargo.lock exactly; a mismatch
+        # produces glue that fails at runtime with no build-time error.
+        run: cargo install wasm-bindgen-cli --version 0.2.129 --locked
       - name: build wasm
         run: |
           cargo build --release -p hikari-rs-wasm --target wasm32-unknown-unknown

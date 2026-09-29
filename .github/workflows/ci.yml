@@ -22,7 +22,40 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
+      # hikari-rs-node is excluded: its test binary links the N-API symbols
+      # (napi_get_reference_value and friends), which only exist inside a Node
+      # process. Linking it on a bare Linux runner fails with undefined
+      # symbols. That crate is covered by the `node bindings` job below, which
+      # runs its real test through an actual Node runtime.
+      - run: cargo test --workspace --exclude hikari-rs-node
+      - run: cargo test -p hikari-rs-node --no-run
+        continue-on-error: true
+
+  node:
+    name: node bindings
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: build native binding
+        run: |
+          cargo build --release -p hikari-rs-node
+          cp target/release/libhikari_node.so npm/hikari-node.node
+      - name: test through a real node runtime
+        run: node npm/test.mjs
+      # Smoke-check the published package metadata: a missing `types` file or a
+      # placeholder repository URL is invisible until someone installs it.
+      - name: check package metadata
+        run: |
+          cd npm
+          npm pkg get name version types files repository > /dev/null
+          test -f index.d.ts || { echo "index.d.ts declared in types but missing"; exit 1; }
+          grep -q "github.com/theoxfaber/hikari" package.json || {
+            echo "repository URL is not the real one"; exit 1; }
 
   font:
     name: embedded font shaping
