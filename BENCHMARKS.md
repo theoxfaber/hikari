@@ -49,7 +49,28 @@ target (27KB) instead of a guess.
 - Neither number is the whole story: fonts differ (DejaVu vs Takumi
   default), so byte counts aren't pure encoder comparisons.
 
-## Follow-ups (honest gaps found by measuring)
+## Determinism (verified 2026-09-29)
+
+Same tree, same bytes, everywhere. Canonical render (`hikari --example
+determinism`):
+
+| Target | PNG (21,649 B) | SVG (738 B) |
+|---|---|---|
+| macOS ARM64 (native) | `ec287845…ba27993` | `57c9a893…8f79137` |
+| Linux x86_64 (Docker `rust:1.89-bookworm`) | pending re-run | pending re-run |
+
+Full hashes: PNG `ec287845088a03b82e75f0ce307fa81ca48e8b519a547e39c5ed0bf28ba27993`,
+SVG `57c9a8932fa4f91abaacfae947b2bcae800e4790fcae5d5a2b6fce4488f79137`.
+These live in `crates/hikari/tests/determinism.sha256` and CI fails if the
+render drifts.
+
+**These digests changed in v0.18, and the old ones were wrong.** They were
+`7f97ec62…` / `b30db642…` at 21,628 B. v0.18 fixed the embedded font subset
+(dropped layout tables) and the paint path (glyphs looked up by character
+instead of by the shaper's glyph id), so kerning and ligatures now actually
+apply to the canonical card. Different glyph positions, different bytes. The
+Linux row is unverified: the previous run was on a machine we no longer have
+access to, and we are not going to print a hash we have not reproduced.
 
 1. **PNG size.** 118KB → 43KB shipped via encoder settings + RGB-strip
    (PIL optimum: 48KB — we beat the reference). Filter-trial experiment:

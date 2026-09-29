@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hikari — images, SVG, animations, PDFs from layout trees</title>
+<link rel="stylesheet" href="style.css"></head>
+<body>
+<nav><a class="logo" href="index.html">hikari</a>
+<a class="me" href="index.html">Home</a><a href="install.html">Install</a><a href="api.html">API</a><a href="benchmarks.html">Benchmarks</a><a href="pricing.html">Pricing</a><a href="playground.html">Playground</a></nav>
+<div class="wrap">
+<h1>OG images, SVG, GIF, and PDFs from layout trees.<br>No browser.</h1>
+<p class="mut">Hikari is a pure-Rust render engine: one JSON-serializable node tree in,
+PNG / SVG / GIF / APNG / WebP / PDF out — on servers, in Node.js, and in the
+browser via WebAssembly. Upstream-only dependencies, offline everything.</p>
+<p><a class="btn" href="playground.html">Try it live — runs 100% in your browser</a>
+<a class="btn ghost" href="install.html">Install in 60 seconds</a></p>
+<pre><code>cargo add hikari-rs
+# or: npm i @hikari-rs/node</code></pre>
+<div class="grid2">
+<div class="card"><b>PNG / SVG / WebP</b><br><span class="mut">Flex, grid, shaped multilingual text, gradients, shadows, images.</span></div>
+<div class="card"><b>GIF / APNG motion</b><br><span class="mut">Parallel frames, looping encoders (Pro).</span></div>
+<div class="card"><b>PDF documents</b><br><span class="mut">Selectable text, subset fonts, outlines, links, attachments, pagination (Pro).</span></div>
+<div class="card"><b>Everywhere Rust runs</b><br><span class="mut">Native, Node.js bindings, 2.7MB WASM, Linux-checked.</span></div>
+</div>
+<h2>Measured, not claimed</h2>
+<p>Same 1200×630 card vs the leading alternative: warm <b>8.7 vs 7.1ms</b>,
+cold tied at 14ms, WASM <b>2.66 vs 3.82MB</b>. Full methodology in
+<a href="benchmarks.html">Benchmarks</a> — including the gaps we still lose.</p>
+<p class="mut">Open core (MIT/Apache-2.0) · Motion + PDF are source-available Pro ·
+<a href="https://github.com/theoxfaber/hikari">GitHub</a></p>
+</div>
+<footer>hikari — boring dependencies, measured numbers.</footer>
+</body>
+</html>

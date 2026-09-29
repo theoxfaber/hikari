@@ -9,5 +9,10 @@ node_modules/
 wasm/*.wasm
 wasm/hikari_wasm.js
 wasm/*.d.ts
+# The playground bundle is a build artifact, not source. Committing a 2.7 MB
+# binary means every release churns it and it silently goes stale against the
+# font subset -- it was still carrying the pre-v0.18 layout-less font. The Pages
+# workflow rebuilds it.
+docs/playground/pkg/
 npm/*.node
 npm/og-node.png

@@ -1,5 +1,7 @@
 //! cliptext.rs target: gradient-clipped headline demo.
 
+mod common;
+
 use hikari::{render_png, Node, Style};
 
 fn main() {
@@ -15,6 +17,6 @@ fn main() {
         )],
     );
     let png = render_png(&tree, 1200, 630).expect("render");
-    std::fs::write("/Users/apple/hikari/cliptext.png", &png).expect("write");
+    common::write("cliptext.png", &png);
     println!("wrote cliptext.png ({} bytes)", png.len());
 }

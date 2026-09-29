@@ -1,5 +1,7 @@
 //! og.rs target: Takumi-style gradient banner.
 
+mod common;
+
 use hikari::{render_png, Node, Style};
 
 fn main() {
@@ -14,6 +16,6 @@ fn main() {
         )],
     );
     let png = render_png(&tree, 1200, 630).expect("render");
-    std::fs::write("/Users/apple/hikari/og.png", &png).expect("write");
+    common::write("og.png", &png);
     println!("wrote og.png ({} bytes)", png.len());
 }

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>API — Hikari</title>
+<link rel="stylesheet" href="style.css"></head>
+<body>
+<nav><a class="logo" href="index.html">hikari</a>
+<a href="index.html">Home</a><a href="install.html">Install</a><a class="me" href="api.html">API</a><a href="benchmarks.html">Benchmarks</a><a href="pricing.html">Pricing</a><a href="playground.html">Playground</a></nav>
+<div class="wrap">
+<h1>API</h1>
+<p>Everything renders from a JSON-serializable <b>node tree</b>. Three node
+kinds: <code>Container</code>, <code>Text</code>, <code>Image</code>. Try it in the
+<a href="playground.html">playground</a>.</p>
+<h2>Rust</h2>
+<pre><code>use hikari::{Node, Style, render_png, render_svg, render_webp};
+
+let tree = Node::container(
+    Style::centered()
+        .with_size(1200.0, 630.0)
+        .with_linear_gradient(180.0, &amp;[(0.0, "#dbeafe"), (1.0, "#fee2e2")]),
+    vec![Node::text("Hello", Style::text(84.0, "#0f172a"))],
+);
+std::fs::write("og.png", render_png(&amp;tree, 1200, 630)?)?;</code></pre>
+<h2>Style cheat sheet</h2>
+<table>
+<tr><th>Builder</th><th>Does</th></tr>
+<tr><td><code>Style::grid(n)</code></td><td>n equal columns</td></tr>
+<tr><td><code>.with_background / .with_linear_gradient / .with_radial_gradient</code></td><td>fills</td></tr>
+<tr><td><code>.with_border / .with_radius / .with_shadow</code></td><td>edges + depth</td></tr>
+<tr><td><code>.with_max_width</code></td><td>word wrap</td></tr>
+<tr><td><code>balance_text / fit_font_size</code></td><td>headline typography helpers</td></tr>
+<tr><td><code>.clip_text()</code></td><td>gradient-clipped glyphs</td></tr>
+<tr><td><code>.with_bookmark / .with_link</code></td><td>PDF outline + hyperlink (Pro PDF)</td></tr>
+<tr><td><code>.keep_together / .repeat_header</code></td><td>flow pagination control</td></tr>
+<tr><td><code>.absolute_at / .with_margin</code></td><td>positioning + spacing</td></tr>
+</table>
+<p class="mut">All style fields accept partial JSON with defaults — see
+<code>npm/test.mjs</code> for the full node-tree schema.</p>
+<h2>PDF (Pro)</h2>
+<pre><code>use hikari::{PageSize, PdfOptions, render_pdf_with, License, now_unix};
+let options = PdfOptions {
+    title: Some("Invoice".into()),
+    paginate: true,   // flow one node across pages
+    attachments: vec![Attachment { name: "factur-x.xml".into(), .. }],
+    ..PdfOptions::new()
+};
+let pdf = render_pdf_with(&amp;[doc], PageSize::A4, &amp;options, &amp;License::dev(now_unix()))?;</code></pre>
+<h2>Motion (Pro)</h2>
+<pre><code>let gif = render_animation_gif(&amp;[(frame_a, 500), (frame_b, 500)], 480, 240, &amp;lic)?;
+let apng = render_animation_apng(&amp;frames, 480, 240, &amp;lic)?;</code></pre>
+</div>
+<footer>hikari — boring dependencies, measured numbers.</footer>
+</body>
+</html>

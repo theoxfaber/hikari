@@ -423,7 +423,7 @@ static IMAGES: OnceLock<Mutex<HashCache<Pixmap>>> = OnceLock::new();
 #[must_use]
 pub fn image_cache_stats() -> (u64, u64) {
     let c = IMAGES.get_or_init(|| Mutex::new(HashCache::new()));
-    let c = c.lock().expect("cache lock");
+    let c = lock_cache(c);
     (c.hits, c.misses)
 }
 
@@ -556,18 +556,50 @@ const MAX_GLYPHS: usize = 4096;
 #[must_use]
 pub fn glyph_cache_stats() -> (u64, u64) {
     let c = GLYPHS.get_or_init(|| Mutex::new(HashCache::new()));
-    let c = c.lock().expect("cache lock");
+    let c = lock_cache(c);
     (c.hits, c.misses)
 }
 
-fn rasterize_cached(font_id: u8, font: &Font, ch: char, px: f32) -> GlyphEntry {
-    let key = format!("{font_id}:{ch}:{}", px.to_bits());
+/// Lock a cache, recovering from poisoning.
+///
+/// These caches are pure memoization: a lost race or a panic inside some other
+/// caller's frame must not turn into a permanent failure. With
+/// `lock().expect(...)` a single panic while the lock was held poisons the
+/// mutex, and then *every* later render panics too -- one bad frame turns into
+/// a dead process. The guard is always dropped before any fallible work, so the
+/// contents are consistent enough to keep using; at worst an entry is
+/// recomputed.
+fn lock_cache<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Which glyph to rasterize, and how to name it in the cache.
+#[derive(Clone, Copy)]
+enum GlyphRef {
+    /// A glyph the shaper already resolved, in the primary font.
+    Id(u16),
+    /// A character looked up directly. Only valid for the fallback font,
+    /// which never went through the shaper.
+    Char(char),
+}
+
+fn rasterize_cached(font_id: u8, font: &Font, glyph: GlyphRef, px: f32) -> GlyphEntry {
+    // Keyed on the shaped glyph id, not the source character: after shaping,
+    // one character can become a ligature glyph and one glyph can stand in for
+    // several characters, so the character is not a stable cache key.
+    let key = match glyph {
+        GlyphRef::Id(gid) => format!("{font_id}:g{gid}:{}", px.to_bits()),
+        GlyphRef::Char(ch) => format!("{font_id}:c{ch}:{}", px.to_bits()),
+    };
     let lock = GLYPHS.get_or_init(|| Mutex::new(HashCache::new()));
-    let mut cache = lock.lock().expect("cache lock");
+    let mut cache = lock_cache(lock);
     if let Some(hit) = cache.get(&key) {
         return hit.clone();
     }
-    let (m, bmp) = font.rasterize(ch, px);
+    let (m, bmp) = match glyph {
+        GlyphRef::Id(gid) => font.rasterize_indexed(gid, px),
+        GlyphRef::Char(ch) => font.rasterize(ch, px),
+    };
     let entry = GlyphEntry {
         w: m.width,
         h: m.height,
@@ -617,7 +649,15 @@ fn draw_text(text: &str, node: &Placed, pix: &mut Pixmap, bx: f32, by: f32) -> R
             };
             let mut glyph_adv = adv.advance;
             if adv.ch != ' ' && !adv.ch.is_control() {
-                let g = rasterize_cached(font_id, glyph_font, adv.ch, px);
+                // The primary font is addressed by the id the shaper chose.
+                // The fallback font never went through the shaper, so it is
+                // addressed by character instead.
+                let target = if font_id == 1 {
+                    GlyphRef::Char(adv.ch)
+                } else {
+                    GlyphRef::Id(adv.gid as u16)
+                };
+                let g = rasterize_cached(font_id, glyph_font, target, px);
                 if font_id == 1 {
                     glyph_adv = g.advance;
                 }
@@ -775,6 +815,87 @@ mod tests {
             assert_eq!(&bytes[..8], &[137, 80, 78, 71, 13, 10, 26, 10], "{text}");
             assert!(bytes.len() > 2000, "{text}: {} bytes", bytes.len());
         }
+    }
+
+    #[test]
+    fn shaped_glyph_ids_reach_the_rasterizer() {
+        // Regression guard. The painter used to look glyphs up by *character*
+        // rather than by the id the shaper produced, so anything GSUB rewrote --
+        // ligatures, Arabic presentation forms -- was asked for by a character
+        // that maps to a different, empty glyph and painted as a blank gap.
+        // Shaping and measurement were correct the whole time, which is exactly
+        // why the bug was invisible to every existing test.
+        //
+        // The tell is not the amount of ink -- it barely changes -- it is a hole
+        // in the middle of a word. So this measures the horizontal ink profile
+        // and asserts no run of empty columns inside the text is wide enough to
+        // be a missing glyph.
+        use hikari_core::Node;
+
+        /// Widest run of empty columns inside the rendered text, in pixels.
+        fn widest_gap(text: &str) -> u32 {
+            let tree = Node::banner(900.0, 220.0, "#000000", text, 72.0, "#ffffff");
+            let placed = hikari_core::compute_layout(&tree, 900.0, 220.0).unwrap();
+            let bytes = render_to_png(&placed, 900, 220).unwrap();
+            let img = image::load_from_memory_with_format(&bytes, image::ImageFormat::Png)
+                .unwrap()
+                .to_luma8();
+            let (w, h) = (img.width(), img.height());
+
+            // Column ink profile, restricted to rows that contain any ink.
+            let rows_with_ink: Vec<u32> = (0..h)
+                .filter(|&y| (0..w).any(|x| img.get_pixel(x, y)[0] > 40))
+                .collect();
+            assert!(!rows_with_ink.is_empty(), "{text:?} painted nothing");
+            let (top, bottom) = (rows_with_ink[0], rows_with_ink[rows_with_ink.len() - 1]);
+
+            let mut profile = vec![0u32; w as usize];
+            for y in top..=bottom {
+                for x in 0..w {
+                    if img.get_pixel(x, y)[0] > 40 {
+                        profile[x as usize] += 1;
+                    }
+                }
+            }
+
+            let first = profile.iter().position(|&v| v > 0).expect("ink");
+            let last = profile.iter().rposition(|&v| v > 0).expect("ink");
+
+            let mut widest = 0u32;
+            let mut run = 0u32;
+            for &v in &profile[first..=last] {
+                if v == 0 {
+                    run += 1;
+                    widest = widest.max(run);
+                } else {
+                    run = 0;
+                }
+            }
+            widest
+        }
+
+        // "office" -> ffi ligature, "waffle" -> ffl. With the wrong lookup these
+        // leave a hole roughly one glyph wide.
+        // Threshold chosen from measurement, not taste: correct rendering
+        // leaves at most a 12px side-bearing gap, while the char-lookup bug
+        // leaves 47px where a ligature should be.
+        const MAX_GAP: u32 = 20;
+        for text in ["office", "waffle", "flagship", "affix"] {
+            let gap = widest_gap(text);
+            assert!(
+                gap < MAX_GAP,
+                "{text:?} has a {gap}px hole inside the text -- a shaped glyph \
+                 is not reaching the rasterizer (ligature rendered blank)"
+            );
+        }
+
+        // Arabic: joined letterforms only appear if the presentation-form
+        // glyphs survived both subsetting and the paint path.
+        let gap = widest_gap("\u{0645}\u{0631}\u{062D}\u{0628}\u{0627}");
+        assert!(
+            gap < MAX_GAP,
+            "Arabic has a {gap}px hole -- joining forms are not being painted"
+        );
     }
 
     #[test]

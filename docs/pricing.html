@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pricing — Hikari</title>
+<link rel="stylesheet" href="style.css"></head>
+<body>
+<nav><a class="logo" href="index.html">hikari</a>
+<a href="index.html">Home</a><a href="install.html">Install</a><a href="api.html">API</a><a href="benchmarks.html">Benchmarks</a><a class="me" href="pricing.html">Pricing</a><a href="playground.html">Playground</a></nav>
+<div class="wrap">
+<h1>Pricing</h1>
+<p>Open core, paid Pro. Still images are free forever; motion and documents
+pay for development. No seat counting, no render metering on self-hosted use.</p>
+<table>
+<tr><th></th><th>Free</th><th>Pro ($19/mo or $190/yr)</th><th>Scale (custom)</th></tr>
+<tr><td>PNG / SVG / WebP stills</td><td>✓</td><td>✓</td><td>✓</td></tr>
+<tr><td>Animated GIF / APNG</td><td>—</td><td>✓</td><td>✓</td></tr>
+<tr><td>PDF documents</td><td>—</td><td>✓</td><td>✓</td></tr>
+<tr><td>Redistribution in closed products</td><td>—</td><td>—</td><td>✓</td></tr>
+<tr><td>Support</td><td>community</td><td>email, 2 business days</td><td>Slack, 1 business day</td></tr>
+</table>
+<h2>How licensing works</h2>
+<p>Pro keys are <code>ed25519</code>-signed strings, verified offline. No network
+calls, no telemetry, no metering. Enforcement is the key check plus the
+commercial terms — stated openly, no DRM theater.
+<code>License::dev()</code> exists for evaluation and tests.</p>
+<p class="mut">Full terms: <code>LICENSE-COMMERCIAL.md</code> in the repo. The open
+core stays MIT/Apache-2.0 regardless of Pro status.</p>
+</div>
+<footer>hikari — boring dependencies, measured numbers.</footer>
+</body>
+</html>

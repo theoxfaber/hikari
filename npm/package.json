@@ -9,6 +9,6 @@
   "repository": "https://github.com/example/hikari",
   "scripts": {
     "test": "node test.mjs",
-    "build": "cargo build --release -p hikari-node && cp ../target/release/libhikari_node.dylib ./hikari-node.node"
+    "build": "cargo build --release -p hikari-rs-node && cp ../target/release/libhikari_node.dylib ./hikari-node.node"
   }
 }

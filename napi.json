@@ -13,5 +13,5 @@
   ],
   "npmDir": "npm",
   "manifestPath": "crates/hikari-node/Cargo.toml",
-  "name": "hikari-node"
+  "name": "hikari-rs-node"
 }

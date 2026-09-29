@@ -25,8 +25,7 @@ ttf-parser = { version = "0.21" }
 image.workspace = true
 
 [build-dependencies]
-allsorts.workspace = true
-ttf-parser = { version = "0.21" }
+# The embedded font is subset by build/subset.rs, which needs no dependencies.
 
 [lints]
 workspace = true

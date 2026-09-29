@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Benchmarks — Hikari</title>
+<link rel="stylesheet" href="style.css"></head>
+<body>
+<nav><a class="logo" href="index.html">hikari</a>
+<a href="index.html">Home</a><a href="install.html">Install</a><a href="api.html">API</a><a class="me" href="benchmarks.html">Benchmarks</a><a href="pricing.html">Pricing</a><a href="playground.html">Playground</a></nav>
+<div class="wrap">
+<h1>Benchmarks</h1>
+<p>Same 1200×630 card (dark bg, gradient hero, heading, wrapped paragraph),
+Apple Silicon, Node 26, release builds. Scripts: <code>npm/bench.mjs</code>.
+We publish the gaps we lose, too.</p>
+<table>
+<tr><th>Metric</th><th>Leading alternative</th><th>Hikari</th></tr>
+<tr><td>Cold render</td><td>~14.0 ms</td><td>~14.0 ms (tied)</td></tr>
+<tr><td>Warm render</td><td>~7.1 ms</td><td>~8.7 ms</td></tr>
+<tr><td>PNG bytes</td><td>26,954</td><td>43,149</td></tr>
+<tr><td>Peak RSS, one render</td><td>~67.7 MB</td><td>~85.4 MB</td></tr>
+<tr><td>WASM raw / gzip</td><td>3.82MB / —</td><td><b>2.66MB / 1.07MB</b></td></tr>
+</table>
+<h2>Encoder trade-off curve (same card, release)</h2>
+<table>
+<tr><th>PNG setting</th><th>Bytes</th><th>Warm</th></tr>
+<tr><td>tiny-skia default (old)</td><td>117,760</td><td>2.3 ms (debug, weak compression)</td></tr>
+<tr><td>Best + Adaptive</td><td>~44,000</td><td>~300 ms — rejected</td></tr>
+<tr><td><b>Default + Adaptive + RGB-strip (shipped)</b></td><td><b>43,100</b></td><td><b>~10.5 ms</b></td></tr>
+<tr><td>Fast + Adaptive</td><td>74,081</td><td>~3.9 ms — rejected (size)</td></tr>
+</table>
+<p>Filter-trial (oxipng-style) was measured and rejected: all filters bottom
+out at ~44KB on our pixels, so the rival's 27KB is content-side, not
+encoder-side. PDF invoices: <b>17KB</b> with subset fonts. Full methodology
+and history in <code>BENCHMARKS.md</code> in the repo.</p>
+</div>
+<footer>hikari — boring dependencies, measured numbers.</footer>
+</body>
+</html>

@@ -9,6 +9,9 @@ mod error;
 mod flow;
 mod shape;
 
+#[cfg(test)]
+mod font_subset_tests;
+
 pub use cache::{hash_bytes, hash_node, HashCache};
 pub use error::Error;
 pub use flow::{paginate, Flow};
@@ -877,7 +880,7 @@ pub fn compute_layout(tree: &Node, viewport_w: f32, viewport_h: f32) -> Result<P
             height: AvailableSpace::Definite(viewport_h),
         },
     )?;
-    Ok(read_back(tree, &taffy, root_id))
+    read_back(tree, &taffy, root_id)
 }
 
 fn build_taffy(node: &Node, taffy: &mut TaffyTree<()>) -> Result<taffy::NodeId, Error> {
@@ -897,16 +900,19 @@ fn build_taffy(node: &Node, taffy: &mut TaffyTree<()>) -> Result<taffy::NodeId, 
     }
 }
 
-fn read_back(node: &Node, taffy: &TaffyTree<()>, id: taffy::NodeId) -> Placed {
-    let layout = taffy.layout(id).expect("computed");
+fn read_back(node: &Node, taffy: &TaffyTree<()>, id: taffy::NodeId) -> Result<Placed, Error> {
+    // Layout failures propagate as `Error` rather than panicking. This runs on
+    // untrusted input from the Node/WASM bindings, and unwinding across the FFI
+    // boundary is undefined behaviour.
+    let layout = taffy.layout(id)?;
     let (style, text, link, media, kids) = match node {
         Node::Container { style, children } => {
-            let child_ids = taffy.children(id).expect("children");
+            let child_ids = taffy.children(id)?;
             let placed = children
                 .iter()
                 .zip(child_ids)
                 .map(|(c, cid)| read_back(c, taffy, cid))
-                .collect();
+                .collect::<Result<Vec<_>, _>>()?;
             (style.clone(), None, style.link.clone(), None, placed)
         }
         Node::Text { text, style } => {
@@ -934,7 +940,7 @@ fn read_back(node: &Node, taffy: &TaffyTree<()>, id: taffy::NodeId) -> Placed {
             Vec::new(),
         ),
     };
-    Placed {
+    Ok(Placed {
         x: layout.location.x,
         y: layout.location.y,
         w: layout.size.width,
@@ -944,7 +950,7 @@ fn read_back(node: &Node, taffy: &TaffyTree<()>, id: taffy::NodeId) -> Placed {
         link,
         media,
         children: kids,
-    }
+    })
 }
 
 #[cfg(test)]

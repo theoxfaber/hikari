@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Install — Hikari</title>
+<link rel="stylesheet" href="style.css"></head>
+<body>
+<nav><a class="logo" href="index.html">hikari</a>
+<a href="index.html">Home</a><a class="me" href="install.html">Install</a><a href="api.html">API</a><a href="benchmarks.html">Benchmarks</a><a href="pricing.html">Pricing</a><a href="playground.html">Playground</a></nav>
+<div class="wrap">
+<h1>Install</h1>
+<h2>Rust</h2>
+<pre><code>cargo add hikari-rs
+# just the pieces you need:
+cargo add hikari-rs-core hikari-rs-pdf</code></pre>
+<h2>Node.js</h2>
+<pre><code>npm i @hikari-rs/node
+node -e "const hk = require('@hikari-rs/node');
+const png = hk.renderPngSync(JSON.stringify(tree), 1200, 630);"</code></pre>
+<p class="mut">Prebuilt for macOS, Linux (glibc + musl) and Windows on x64 + ARM64.
+Pro PDF reads <code>HIKARI_LICENSE</code> / <code>HIKARI_PUBKEY</code> from the environment.</p>
+<h2>Browser / edge workers</h2>
+<pre><code>import init, { render_png } from './playground/pkg/hikari_wasm.js';
+await init();
+const pngBytes = render_png(JSON.stringify(tree), 1200, 630); // Uint8Array</code></pre>
+<h2>From source</h2>
+<pre><code>git clone https://github.com/theoxfaber/hikari && cd hikari
+cargo test --workspace          # 60+ tests
+cargo run -p hikari-rs --example card
+node npm/test.mjs               # needs npm/hikari-node.node built (see below)</code></pre>
+<h2>Build the Node binding locally</h2>
+<pre><code>cargo build -p hikari-rs-node
+cp target/debug/libhikari_node.dylib npm/hikari-node.node  # .dll/.so per OS
+node npm/test.mjs</code></pre>
+<p class="mut">Requires Rust 1.78+. No system dependencies — everything is pure Rust
+except the optional system CJK fallback fonts at runtime.</p>
+</div>
+<footer>hikari — boring dependencies, measured numbers.</footer>
+</body>
+</html>

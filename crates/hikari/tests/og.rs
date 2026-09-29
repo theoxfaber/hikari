@@ -75,9 +75,15 @@ fn renders_are_byte_deterministic() {
     // Same tree twice must produce identical bytes: the foundation of
     // snapshot testing and the cross-platform determinism story.
     let tree = Node::banner(1200.0, 630.0, "#0b1020", "Deterministic", 72.0, "#ffffff");
-    let (a, b) = (render_png(&tree, 1200, 630).unwrap(), render_png(&tree, 1200, 630).unwrap());
+    let (a, b) = (
+        render_png(&tree, 1200, 630).unwrap(),
+        render_png(&tree, 1200, 630).unwrap(),
+    );
     assert_eq!(a, b);
     assert!(a.len() > 5_000);
-    let (c, d) = (render_svg(&tree, 1200, 630).unwrap(), render_svg(&tree, 1200, 630).unwrap());
+    let (c, d) = (
+        render_svg(&tree, 1200, 630).unwrap(),
+        render_svg(&tree, 1200, 630).unwrap(),
+    );
     assert_eq!(c, d);
 }

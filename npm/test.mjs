@@ -71,7 +71,9 @@ const png = hk.renderPngSync(tree, 1200, 630);
 assert.equal(png[0], 0x89, 'PNG magic');
 assert.equal(png[1], 0x50, 'PNG magic');
 assert.ok(png.length > 5000, `png size ${png.length}`);
-writeFileSync('/Users/apple/hikari/npm/og-node.png', png);
+writeFileSync(process.env.HIKARI_EXAMPLE_OUT
+  ? `${process.env.HIKARI_EXAMPLE_OUT}/og-node.png`
+  : new URL('./og-node.png', import.meta.url).pathname, png);
 
 const svg = hk.renderSvgSync(tree, 1200, 630);
 assert.ok(svg.startsWith('<svg'), 'svg root');

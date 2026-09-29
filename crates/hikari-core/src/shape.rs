@@ -19,15 +19,9 @@ pub fn font_bytes() -> &'static [u8] {
 }
 
 static FACE: OnceLock<Face<'static>> = OnceLock::new();
-static TTF: OnceLock<ttf_parser::Face<'static>> = OnceLock::new();
 
 fn face() -> &'static Face<'static> {
     FACE.get_or_init(|| Face::from_slice(font_bytes(), 0).expect("embedded font parses"))
-}
-
-/// `ttf-parser` view of the embedded font (metrics, glyph ids).
-fn ttf_face() -> &'static ttf_parser::Face<'static> {
-    TTF.get_or_init(|| ttf_parser::Face::parse(font_bytes(), 0).expect("embedded font parses"))
 }
 
 /// System CJK-capable fallback bytes, loaded lazily. Never bundled
@@ -288,10 +282,13 @@ fn shape_run(run: &str, rtl: bool, px: f32) -> (Vec<PlacedAdvance>, f32) {
         .zip(positions.iter())
         .map(|(info, pos)| {
             let ch = char_at(info.cluster as usize);
-            let gid = ttf_face()
-                .glyph_index(ch)
-                .map(|g| u32::from(g.0))
-                .unwrap_or(0);
+            // The glyph id must come from the shaper, not from a cmap lookup of
+            // `ch`. After GSUB the shaped glyph is frequently *not* the glyph
+            // the source character maps to: ligatures collapse several
+            // characters into one glyph, and Arabic letters are rewritten into
+            // contextual presentation forms. Re-deriving the id from `ch` threw
+            // that away, so the painter drew a blank or the wrong letterform.
+            let gid = info.glyph_id;
             let missing = info.glyph_id == 0 && ch != '\0';
             // Missing CJK ideographs are full-width in virtually every
             // fallback font; measure 1em so layout agrees with paint.

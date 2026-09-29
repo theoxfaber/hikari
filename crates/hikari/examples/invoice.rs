@@ -3,6 +3,8 @@
 //! One flowing document node becomes N pages: line items split across
 //! pages, the table header repeats, the title lands in the outline.
 
+mod common;
+
 use hikari::{
     now_unix, render_pdf_with, Attachment, Justify, License, Node, PageSize, PdfOptions, Style,
 };
@@ -100,6 +102,6 @@ fn main() {
         }],
     };
     let doc = render_pdf_with(&[document()], PageSize::A4, &options, &lic).expect("render");
-    std::fs::write("/Users/apple/hikari/invoice.pdf", &doc).expect("write");
+    common::write("invoice.pdf", &doc);
     println!("wrote invoice.pdf ({} bytes)", doc.len());
 }

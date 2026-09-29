@@ -24,22 +24,22 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.17.0"
+version = "0.18.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/example/hikari"
 rust-version = "1.78"
 
 [workspace.dependencies]
-hikari-rs-core = { path = "crates/hikari-core", version = "0.17.0" }
-hikari-rs-raster = { path = "crates/hikari-raster", version = "0.17.0" }
-hikari-rs-svg = { path = "crates/hikari-svg", version = "0.17.0" }
-hikari-rs-animate = { path = "crates/hikari-animate", version = "0.17.0" }
-hikari-rs-license = { path = "crates/hikari-license", version = "0.17.0" }
-hikari-rs-pdf = { path = "crates/hikari-pdf", version = "0.17.0" }
-hikari-rs-node = { path = "crates/hikari-node", version = "0.17.0" }
-hikari-rs-wasm = { path = "crates/hikari-wasm", version = "0.17.0" }
-hikari-rs = { path = "crates/hikari", version = "0.17.0" }
+hikari-rs-core = { path = "crates/hikari-core", version = "0.18.0" }
+hikari-rs-raster = { path = "crates/hikari-raster", version = "0.18.0" }
+hikari-rs-svg = { path = "crates/hikari-svg", version = "0.18.0" }
+hikari-rs-animate = { path = "crates/hikari-animate", version = "0.18.0" }
+hikari-rs-license = { path = "crates/hikari-license", version = "0.18.0" }
+hikari-rs-pdf = { path = "crates/hikari-pdf", version = "0.18.0" }
+hikari-rs-node = { path = "crates/hikari-node", version = "0.18.0" }
+hikari-rs-wasm = { path = "crates/hikari-wasm", version = "0.18.0" }
+hikari-rs = { path = "crates/hikari", version = "0.18.0" }
 wasm-bindgen = { version = "0.2" }
 
 taffy = { version = "0.9", default-features = false, features = ["std", "taffy_tree", "flexbox", "grid", "block_layout", "calc", "alloc"] }

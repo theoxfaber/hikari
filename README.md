@@ -10,22 +10,36 @@ OG/social images (1200x630) from a JSON-serializable node tree.
 - **Content-hash cache**: identical subtrees skip layout+paint (`sha2`).
 - **Parallel animations**: frames render with `rayon`.
 - **Size-first**: single `[profile.wasm-release] opt-level=s`, feature flags. No per-crate opt-level whack-a-mole.
-- **Strict by default**: `clippy::all = deny`, `unsafe_code = forbid`, snapshot + bench gates.
+- **Strict by default**: `clippy::all = deny`, `unsafe_code = forbid`, and CI
+  gates on fmt, clippy, the full test suite, embedded-font shaping, benchmark
+  compilation, `cargo deny`, and cross-platform byte determinism.
+- **Correct shaping**: the embedded font keeps `GSUB`/`GPOS`/`GDEF`, so Arabic
+  and Persian join, kerning applies and ligatures form. A conventional
+  subsetter drops all three and renders Latin while silently losing the rest.
 
-## Scope (intentional)
+## Scope (v0.18)
 
-v0.4 renders: flex/grid/block containers, shaped + wrapped text, decoded
-images (cover/contain/fill, rounded clip, decode cache), solid + linear +
-radial backgrounds, background-clip:text, box shadows, borders, margins, absolute positioning, animated GIF
-(Pro), PDF documents with selectable text (Pro), and Node.js bindings
-(free). No masks/filters/shadows yet. Run `cargo run -p hikari
---example og` (gradient banner), `--example card` (grid + image),
-`--example motion` (Pro GIF), and `--example invoice` (Pro 2-page PDF)
-for proof; `node npm/test.mjs` exercises the Node binding.
-Field guide: `COMPETITION.md` (rivals + positioning),
-`BENCHMARKS.md` (measured numbers, updated per release).
+Flex/grid/block containers, shaped + wrapped + balanced + fitted text,
+decoded images (cover/contain/fill, rounded clip, decode cache), solid +
+linear + radial backgrounds, background-clip:text, box shadows, borders,
+margins, absolute positioning, animated GIF/APNG (Pro), lossless WebP,
+PDF documents with selectable text, outlines, links, attachments and
+pagination (Pro), Node.js + WASM bindings (free).
+[Docs + live playground](https://theoxfaber.github.io/hikari/) ·
+[Benchmarks](BENCHMARKS.md) · [Competition](COMPETITION.md) ·
+[Changelog](CHANGELOG.md).
+
+Run `cargo run -p hikari-rs --example og` (gradient banner),
+`--example card` (grid + image), `--example motion` (Pro GIF/APNG),
+`--example invoice` (Pro flowing PDF) and `--example determinism`
+(cross-platform byte hashes) for proof; `node npm/test.mjs` exercises
+the Node binding.
 
 ## Quick start
+
+```sh
+cargo add hikari-rs
+```
 
 ```rust
 use hikari::{Node, Style, render_png};
@@ -55,19 +69,49 @@ cargo bench
 ## Fonts
 
 `hikari-core/assets/DejaVuSans.ttf` (DejaVu Fonts License, permissive) is
-subset at build time (`build.rs`, allsorts) to Latin, Greek, Cyrillic,
-Hebrew, Arabic, punctuation, currency, arrows, math, and symbols — the
-single source of truth for shaping, raster, and PDF, so all three agree.
-CJK ideographs fall back at runtime to a system font (Arial Unicode on
-macOS, Noto CJK on Linux). Tradeoff: the subset drops GSUB/GPOS/GDEF
-(kerning, ligatures, Arabic joining — joining was already isolated-form
-through the rasterizer); production deployments should ship a subsetted
-OFL CJK font instead of relying on system paths.
+subset at build time to Latin, Greek, Cyrillic, Hebrew, Arabic, punctuation,
+currency, arrows, math and symbols — the single source of truth for shaping,
+raster and PDF, so all three agree. CJK ideographs fall back at runtime to a
+system font (Arial Unicode on macOS, Noto CJK on Linux); production
+deployments should ship a subsetted OFL CJK font instead of relying on system
+paths.
+
+### The subset preserves shaping
+
+Most subsetters renumber glyphs into a dense range. That silently invalidates
+every glyph id inside `GSUB`/`GPOS`/`GDEF`, and most of them then drop those
+tables outright. The result is a font that renders Latin perfectly and quietly
+loses Arabic joining, kerning and ligatures — no error, no warning, just
+slightly wrong text.
+
+So `crates/hikari-core/build/subset.rs` keeps the **original glyph ids** and
+leaves the gaps empty. `GSUB`, `GPOS` and `GDEF` are then copied byte for byte
+and need no rewriting at all, which means there is no field that can be
+forgotten. The cost is a sparse id space: about 49 KB of `loca`/`hmtx`
+padding. The legacy `kern` table is dropped (16 KB) because every modern
+shaper prefers `GPOS`, and `post` is rewritten to format 3.0, discarding 62 KB
+of glyph names nothing reads.
+
+Net: 757 KB → 369 KB, with kerning, ligatures and Arabic joining intact.
+
+Two things this does **not** fix, stated plainly:
+
+- **Hebrew does not join.** DejaVu Sans itself has no Hebrew presentation
+  forms, so even the unshaded source font renders `שלום` with isolated letters.
+  This is font coverage, not a subsetting bug; a test asserts the subset
+  matches the source exactly so the two are never confused again. Fixing it
+  means bundling a font with Hebrew coverage (Noto Sans Hebrew).
+- **CJK depends on system fonts**, as above.
+
+`crates/hikari-core/src/font_subset_tests.rs` compares shaping against the
+full source font for Arabic, Persian, Hebrew, kerning and ligatures, and
+`hikari-raster` has a pixel-level guard that fails if a shaped glyph fails to
+reach the rasterizer. Both exist because this failure mode is invisible.
 
 ## Node.js
 
 ```sh
-cargo build --release -p hikari-node
+cargo build --release -p hikari-rs-node
 cp target/release/libhikari_node.dylib npm/hikari-node.node
 node npm/test.mjs
 ```
@@ -80,7 +124,7 @@ node npm/test.mjs
 
 ```sh
 rustup target add wasm32-unknown-unknown
-cargo build -p hikari-wasm --target wasm32-unknown-unknown
+cargo build -p hikari-rs-wasm --target wasm32-unknown-unknown
 wasm-bindgen target/wasm32-unknown-unknown/debug/hikari_wasm.wasm \
   --out-dir wasm --target nodejs
 node wasm/test.mjs
@@ -106,7 +150,11 @@ Enforcement is honest: a key check plus commercial terms, no DRM theater.
 - [x] solid + linear + radial backgrounds, PNG + SVG (v0.4)
 - [x] animated GIF, parallel RGBA frames, offline license keys (v0.5 Pro)
 - [x] PDF backend: selectable text, embedded fonts, images, 2-page proof (v0.6 Pro)
-- [x] Measured bake-off vs Takumi: 3x faster warm, honest gaps logged (v0.7)
+- [x] Measured bake-off vs Takumi, honest gaps logged (v0.7). Correction: an
+      earlier version of this line claimed "3x faster warm". That number came
+      from a debug build and was wrong. Takumi leads on warm render, cold start,
+      peak RSS and PNG size; see [BENCHMARKS.md](BENCHMARKS.md) for the
+      measurements and what we still lose.
 - [x] Font subsetting: 387KB → 17KB invoices, spaces extract (v0.8 Pro)
 - [x] PNG encoder overhaul: 118KB → 43KB cards, trade-off curve measured (v0.9)
 - [x] Competition mapped (COMPETITION.md), bake-off published (BENCHMARKS.md)
@@ -119,7 +167,16 @@ Enforcement is honest: a key check plus commercial terms, no DRM theater.
 - [x] Nested outlines, file attachments incl. e-invoice XML (v0.15)
 - [x] Lossless WebP stills + napi-CLI prebuild matrix proven (v0.16)
 - [x] text-fit + balance, clip:text, Linux target check (v0.17)
-- [ ] masks/filters/shadows/blend, `text-fit`, `balance`/`pretty`
+- [x] Cross-platform byte determinism proven, `hikari-rs-*` publish names, docs site (v0.18)
+- [x] Layout-preserving font subset (`GSUB`/`GPOS`/`GDEF` retained) and paint
+      path keyed on shaped glyph ids — Arabic joining, kerning and ligatures
+      actually render (v0.18)
+- [x] CI gates: fmt, clippy, tests, embedded-font shaping, determinism digests,
+      bench smoke, `cargo deny` (v0.18)
+- [ ] masks/filters/shadows/blend
 - [ ] `lightningcss` style parsing, remote asset preload helper
 - [ ] WebP/GIF animation encoding, NAPI + WASM bindings
-- [ ] snapshot corpus + `criterion` regression gates in CI
+- [ ] Bundled OFL CJK + Hebrew-covering fonts, replacing system-font fallback
+- [ ] Golden-image corpus beyond the single determinism card
+- [ ] `criterion` regression *gates* (CI currently smoke-runs benches; shared
+      runners are too noisy to assert on timings)

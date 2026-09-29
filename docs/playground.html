@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Playground — Hikari</title>
+<link rel="stylesheet" href="style.css"></head>
+<body>
+<nav><a class="logo" href="index.html">hikari</a>
+<a href="index.html">Home</a><a href="install.html">Install</a><a href="api.html">API</a><a href="benchmarks.html">Benchmarks</a><a href="pricing.html">Pricing</a><a class="me" href="playground.html">Playground</a></nav>
+<div class="wrap">
+<h1>Playground</h1>
+<p class="mut">Runs 100% in your browser — the actual Hikari engine compiled to WebAssembly. Nothing is uploaded.</p>
+<p>
+<label>Preset <select id="preset">
+<option value="banner">Gradient banner</option>
+<option value="card">Two-column card</option>
+<option value="clip">Gradient-clipped headline</option>
+</select></label>
+<label>W <input type="number" id="w" value="1200" min="16" max="2400" step="10"></label>
+<label>H <input type="number" id="h" value="630" min="16" max="2400" step="10"></label>
+<button class="go" id="go">Render</button>
+<span id="stat" class="mut"></span>
+</p>
+<div id="out"></div>
+<h2>SVG output</h2>
+<textarea id="svgout" readonly></textarea>
+<h2>Node tree JSON</h2>
+<p class="mut">Edit it, press Render — this exact JSON is what the Rust and Node APIs accept.</p>
+<textarea id="tree" style="width:100%;height:220px;background:var(--panel);color:var(--ink);border:1px solid #22304d;border-radius:8px;"></textarea>
+</div>
+<script type="module">
+import init, { render_png, render_svg, version } from './pkg/hikari_wasm.js';
+await init();
+const C = (r, g, b) => ({ r, g, b, a: 255 });
+const base = { display: 'Flex', dir: 'Row', justify: 'Start', align: 'Start', gap: 0,
+  padding: 0, margin: 0, border: 0, border_color: null, absolute: false, left: null,
+  top: null, background: null, color: null, font_size: null, radius: 0, grow: 0,
+  grid_cols: null, max_width: null, aspect: null, bookmark: null,
+  keep_together: false, repeat_header: false, shadow: null, link: null, clip_text: false };
+const S = (o) => ({ ...base, ...o });
+const T = (text, size, hex) => ({ Text: { text, style: S({ color: hex, font_size: size }) } });
+const presets = {
+  banner: { Container: { style: S({ width: 1200, height: 630, justify: 'Center', align: 'Center',
+    background: { Linear: { angle_deg: 180, stops: [
+      { pos: 0, color: C(219, 234, 254) }, { pos: 1, color: C(254, 226, 226) }] } } }),
+    children: [T('Hello from Hikari', 84, { r: 15, g: 23, b: 42, a: 255 })] } },
+  card: { Container: { style: S({ width: 1200, height: 630, justify: 'Center', align: 'Center',
+    gap: 48, padding: 60, background: { Solid: C(11, 16, 32) } }), children: [
+    { Container: { style: S({ width: 480, height: 480, radius: 32, border: 4,
+      border_color: C(56, 189, 248),
+      background: { Linear: { angle_deg: 180, stops: [
+        { pos: 0, color: C(219, 234, 254) }, { pos: 1, color: C(254, 226, 226) }] } } }),
+      children: [] } },
+    { Container: { style: S({ dir: 'Column', justify: 'Center', gap: 20 }), children: [
+      T('Ship OG images', 72, C(255, 255, 255)),
+      { Text: { text: 'No browser, no screenshots, just pixels.',
+        style: S({ color: C(148, 163, 184), font_size: 30, max_width: 480 }) } },
+    ] } },
+  ] } },
+  clip: { Container: { style: S({ width: 1200, height: 630, justify: 'Center', align: 'Center',
+    background: { Solid: C(11, 16, 32) } }),
+    children: [{ Text: { text: 'Gradient words',
+      style: S({ color: C(255, 255, 255), font_size: 120, clip_text: true,
+        background: { Linear: { angle_deg: 90, stops: [
+          { pos: 0, color: C(56, 189, 248) }, { pos: 1, color: C(167, 139, 250) }] } } }) } }] } },
+};
+const $ = (id) => document.getElementById(id);
+$('tree').value = JSON.stringify(presets.banner, null, 1);
+$('preset').onchange = (e) => { $('tree').value = JSON.stringify(presets[e.target.value], null, 1); };
+$('go').onclick = () => {
+  const t0 = performance.now();
+  try {
+    const tree = $('tree').value;
+    const w = +$('w').value || 1200, h = +$('h').value || 630;
+    const png = render_png(tree, w, h);
+    const url = URL.createObjectURL(new Blob([png], { type: 'image/png' }));
+    $('out').innerHTML = '';
+    const img = document.createElement('img');
+    img.src = url;
+    $('out').appendChild(img);
+    $('svgout').value = render_svg(tree, w, h);
+    $('stat').textContent = `v${version()} · ${(performance.now() - t0).toFixed(1)}ms · ${png.length} bytes`;
+  } catch (e) { $('stat').textContent = 'error: ' + e; }
+};
+$('go').click();
+</script>
+<footer>hikari — boring dependencies, measured numbers.</footer>
+</body>
+</html>

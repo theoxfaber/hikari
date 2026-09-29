@@ -2,14 +2,72 @@ name: ci
 on:
   push:
   pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  # Keep the build honest: the embedded font subset is produced by build.rs and
+  # a broken subset is a *silent* shaping regression, so the build script runs
+  # with warnings visible and the font tests below act as the real gate.
+  RUSTFLAGS: -D warnings
+
 jobs:
   check:
+    name: fmt / clippy / test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+
+  font:
+    name: embedded font shaping
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # These tests are the only thing standing between us and a silently
+      # broken embedded font: a subsetter that renumbers glyphs and drops
+      # GSUB/GPOS still renders Latin, still passes a smoke test, and still
+      # produces a valid PNG -- while losing Arabic joining, kerning and
+      # ligatures. They are split into their own job so a font regression is
+      # impossible to miss in the noise of a full workspace run.
+      - run: cargo test -p hikari-rs-core font_subset -- --nocapture
+      - run: cargo test -p hikari-rs-raster shaped_glyph_ids -- --nocapture
+
+  determinism:
+    name: cross-platform byte determinism
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Same input must produce the same bytes on every platform, which is what
+      # makes the output snapshot-testable at all. Expected digests live in
+      # crates/hikari/tests/determinism.sha256; the example exits non-zero on a
+      # mismatch and prints the re-bless command.
+      - run: cargo run --release -p hikari-rs --example determinism
+
+  benches:
+    name: benchmark smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # A smoke run, not a gate: criterion on shared CI runners is far too
+      # noisy to assert on. This catches benches that stop compiling or hang.
+      - run: cargo bench -p hikari-rs --bench render -- --warm-up-time 1 --measurement-time 2 --sample-size 10
+
+  audit:
+    name: supply chain
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@cargo-deny
+      - run: cargo deny check

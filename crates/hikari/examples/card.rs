@@ -1,5 +1,7 @@
 //! card.rs target: grid + image + border + wrapped text demo.
 
+mod common;
+
 use hikari::{render_png, Justify, Node, Style};
 
 /// Sky-gradient hero image generated in code (no network, no assets).
@@ -52,6 +54,6 @@ fn main() {
         vec![hero, copy],
     );
     let png = render_png(&tree, 1200, 630).expect("render");
-    std::fs::write("/Users/apple/hikari/card.png", &png).expect("write");
+    common::write("card.png", &png);
     println!("wrote card.png ({} bytes)", png.len());
 }
