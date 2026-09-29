@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 const require = createRequire(import.meta.url);
 const hk = require('./hikari-node.node');
@@ -102,29 +102,50 @@ writeFileSync(`${outDir}/og-node.png`, png);
 
 // Custom font registration: idempotent on content, and a registered font must
 // actually change the render rather than being silently ignored.
-const fontBytes = readFileSync('/System/Library/Fonts/Supplemental/Georgia.ttf');
-const fontId = hk.registerFont('Brand', fontBytes);
-assert.equal(typeof fontId, 'number', 'registerFont returns an id');
-assert.equal(hk.registerFont('Brand again', fontBytes), fontId, 'same bytes -> same id');
-assert.ok(hk.registeredFontCount() >= 2, 'embedded + registered');
+//
+// The second font is looked up across platforms rather than hardcoded, because a
+// test that depends on one machine's font directory fails everywhere else. CI
+// installs fonts-liberation so this always has a font to work with.
+const SECOND_FONT = [
+  '/System/Library/Fonts/Supplemental/Georgia.ttf',
+  '/Library/Fonts/Georgia.ttf',
+  '/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf',
+  '/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf',
+].find((p) => existsSync(p));
 
-const withFont = JSON.stringify({
-  Container: {
-    style: { width: 1200, height: 630, background: '#0b1020', font: fontId },
-    children: [
-      { Text: { text: 'Brand font from Node', style: { font_size: 72, color: '#ffffff' } } },
-    ],
-  },
-});
-const customPng = hk.renderPngSync(withFont, 1200, 630);
-assert.ok(customPng.length > 2000, `custom-font png size ${customPng.length}`);
-assert.notDeepEqual(
-  Buffer.from(customPng),
-  png,
-  'a registered font produced identical output to the built-in',
-);
-const customSvg = hk.renderSvgSync(withFont, 1200, 630);
-assert.ok(customSvg.includes('Brand'), `SVG names the family: ${customSvg}`);
+if (SECOND_FONT) {
+  const fontBytes = readFileSync(SECOND_FONT);
+  const fontId = hk.registerFont('Brand', fontBytes);
+  assert.equal(typeof fontId, 'number', 'registerFont returns an id');
+  assert.equal(
+    hk.registerFont('Brand again', fontBytes),
+    fontId,
+    'identical bytes must return the same id',
+  );
+  assert.ok(hk.registeredFontCount() >= 2, 'embedded plus registered');
+
+  const withFont = JSON.stringify({
+    Container: {
+      style: { width: 1200, height: 630, background: '#0b1020', font: fontId },
+      children: [
+        { Text: { text: 'Brand font from Node', style: { font_size: 72, color: '#ffffff' } } },
+      ],
+    },
+  });
+  const customPng = hk.renderPngSync(withFont, 1200, 630);
+  assert.ok(customPng.length > 2000, `custom-font png size ${customPng.length}`);
+  assert.notDeepEqual(
+    Buffer.from(customPng),
+    png,
+    'a registered font produced identical output to the built-in, so it was ignored',
+  );
+  assert.ok(
+    hk.renderSvgSync(withFont, 1200, 630).includes('Brand'),
+    'SVG did not name the registered family',
+  );
+} else {
+  console.warn(`skipping custom-font checks: no second font found (looked for ${SECOND_FONT})`);
+}
 
 const svg = hk.renderSvgSync(tree, 1200, 630);
 assert.ok(svg.startsWith('<svg'), 'svg root');

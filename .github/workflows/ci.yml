@@ -49,6 +49,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      # The custom-font checks need a font that is not the embedded one. A bare
+      # runner has none, so they would silently skip -- install one so the
+      # registry is genuinely exercised.
+      - name: install a second font
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fonts-liberation
+          ls /usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf
       - name: build native binding
         run: |
           cargo build --release -p hikari-rs-node
