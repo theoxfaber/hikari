@@ -32,6 +32,16 @@ Net effect: `office`/`waffle` render their `ffi`/`ffl` ligatures, `AVATAR`
 kerns, and Arabic and Persian join into connected letterforms.
 
 ### Fixed
+- `npm/index.js` did not re-export `renderWebpSync`, so the function existed
+  in the native binding but was unreachable through the package entry point.
+  `npm/test.mjs` now asserts the wrapper exposes every binding entry point —
+  it previously loaded `./hikari-node.node` directly, which is why the gap went
+  unnoticed.
+- `npm/package.json` declared `"types": "./index.d.ts"` for a file that did not
+  exist, sat at version 0.7.0, and pointed `repository` at
+  `github.com/example/hikari`. Added a hand-written `index.d.ts` describing the
+  real wire format (externally tagged `Node`, `snake_case` style fields,
+  `{r,g,b,a}` colours) and fixed the metadata.
 - Examples hardcoded `/Users/apple/hikari/...`, so the documented
   `cargo run --example ...` invocations only worked on the original author's
   machine. Outputs now land in the workspace root, overridable with

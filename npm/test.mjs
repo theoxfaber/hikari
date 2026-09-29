@@ -4,6 +4,25 @@ import { writeFileSync } from 'node:fs';
 
 const require = createRequire(import.meta.url);
 const hk = require('./hikari-node.node');
+const { mkdirSync } = require('node:fs');
+
+const outDir = process.env.HIKARI_EXAMPLE_OUT
+  ? (mkdirSync(process.env.HIKARI_EXAMPLE_OUT, { recursive: true }),
+    process.env.HIKARI_EXAMPLE_OUT)
+  : new URL('.', import.meta.url).pathname;
+
+// Exercise the package entry point too, not just the raw binding. These were
+// separate for a while and the wrapper quietly omitted renderWebpSync, which
+// nothing caught because every test loaded ./hikari-node.node directly.
+const wrapper = require('./index.js');
+for (const name of ['renderPngSync', 'renderSvgSync', 'renderWebpSync', 'renderPdfSync', 'version']) {
+  assert.equal(typeof wrapper[name], 'function', `index.js must export ${name}`);
+}
+assert.equal(
+  Object.keys(wrapper).length,
+  Object.keys(hk).length,
+  'index.js must re-export every binding entry point',
+);
 
 assert.match(hk.version(), /^\d+\.\d+\.\d+$/, 'version looks semver');
 
@@ -71,9 +90,7 @@ const png = hk.renderPngSync(tree, 1200, 630);
 assert.equal(png[0], 0x89, 'PNG magic');
 assert.equal(png[1], 0x50, 'PNG magic');
 assert.ok(png.length > 5000, `png size ${png.length}`);
-writeFileSync(process.env.HIKARI_EXAMPLE_OUT
-  ? `${process.env.HIKARI_EXAMPLE_OUT}/og-node.png`
-  : new URL('./og-node.png', import.meta.url).pathname, png);
+writeFileSync(`${outDir}/og-node.png`, png);
 
 const svg = hk.renderSvgSync(tree, 1200, 630);
 assert.ok(svg.startsWith('<svg'), 'svg root');

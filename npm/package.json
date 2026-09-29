@@ -1,12 +1,37 @@
 {
   "name": "@hikari-rs/node",
-  "version": "0.7.0",
-  "description": "Render OG images, SVG, and PDFs from layout trees. No browser.",
-  "license": "MIT",
-  "main": "./hikari-node.node",
+  "version": "0.18.0",
+  "description": "Render OG images, SVG, animations and PDFs from layout trees in pure Rust. No browser.",
+  "keywords": [
+    "og-image",
+    "satori",
+    "resvg",
+    "svg",
+    "pdf",
+    "image",
+    "rust",
+    "napi",
+    "text-to-image"
+  ],
+  "license": "MIT OR Apache-2.0",
+  "main": "./index.js",
   "types": "./index.d.ts",
-  "files": ["hikari-node.node", "index.d.ts", "index.js"],
-  "repository": "https://github.com/example/hikari",
+  "files": [
+    "hikari-node.node",
+    "index.d.ts",
+    "index.js"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/theoxfaber/hikari.git"
+  },
+  "homepage": "https://theoxfaber.github.io/hikari",
+  "bugs": {
+    "url": "https://github.com/theoxfaber/hikari/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "test": "node test.mjs",
     "build": "cargo build --release -p hikari-rs-node && cp ../target/release/libhikari_node.dylib ./hikari-node.node"
