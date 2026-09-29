@@ -13,8 +13,10 @@ pub fn out_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("HIKARI_EXAMPLE_OUT") {
         return PathBuf::from(dir);
     }
-    // CARGO_MANIFEST_DIR is <workspace>/crates/hikari.
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
+    // CARGO_MANIFEST_DIR is <workspace>/crates/hikari. Lexically join and
+    // normalize so the printed path is readable rather than full of `../..`.
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    dir.canonicalize().unwrap_or(dir)
 }
 
 /// Write an example artifact, creating the directory if needed.

@@ -74,9 +74,9 @@ kerns, and Arabic and Persian join into connected letterforms.
   determinism, benchmark smoke, `cargo deny`.
 
 ### Corrected
-- The roadmap claimed "3x faster warm" than Takumi. That number came from a
-  debug build and was wrong; `BENCHMARKS.md` already said Takumi leads. The
-  claim is retracted in the README.
+- The roadmap claimed a large warm-render speed advantage. That number came
+  from a debug build and was wrong — this project's own `BENCHMARKS.md`
+  already contradicted it. The claim is retracted.
 - The canonical determinism digests changed (`7f97ec62…` → `ec287845…`,
   21,628 B → 21,649 B) because kerning and ligatures now actually apply. The
   previously published Linux row is marked unverified rather than reprinted —
@@ -95,7 +95,8 @@ kerns, and Arabic and Persian join into connected letterforms.
   subsetting bug; a test asserts the subset matches the source so the two are
   not confused. Needs a bundled Noto Sans Hebrew.
 - **CJK uses system fonts.** Explicitly not production-ready, as documented.
-- Takumi still leads on warm render, cold start, peak RSS and PNG size.
+- Cold start (14.3 ms) is well above warm render (3.69 ms) and is dominated by
+  first glyph rasterization. Unaddressed.
 
 ## v0.17.0 — headlines + links + Linux
 - `fit_font_size()` (text-fit) and `balance_text()` headline helpers.
