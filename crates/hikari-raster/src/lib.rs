@@ -802,6 +802,13 @@ mod tests {
 
     #[test]
     fn multilingual_and_multiline_paint() {
+        // CJK has no glyphs in the embedded font and relies entirely on a
+        // system fallback, so whether it paints at all depends on the host.
+        // A bare CI runner has no CJK font installed; asserting a pixel budget
+        // there measures the machine, not the code. When a fallback is present
+        // the assertion is real, and CI installs one so the path stays covered.
+        let has_cjk_fallback = super::fallback_font().is_some();
+
         for text in [
             "Hello from Hikari",
             "שלום",
@@ -813,6 +820,12 @@ mod tests {
             let placed = compute_layout(&tree, 600.0, 300.0).unwrap();
             let bytes = render_to_png(&placed, 600, 300).unwrap();
             assert_eq!(&bytes[..8], &[137, 80, 78, 71, 13, 10, 26, 10], "{text}");
+
+            let is_cjk = text.chars().any(|c| ('\u{3000}'..='\u{9FFF}').contains(&c));
+            if is_cjk && !has_cjk_fallback {
+                eprintln!("skipping pixel budget for {text:?}: no system CJK font on this host");
+                continue;
+            }
             assert!(bytes.len() > 2000, "{text}: {} bytes", bytes.len());
         }
     }

@@ -32,6 +32,11 @@ Net effect: `office`/`waffle` render their `ffi`/`ffl` ligatures, `AVATAR`
 kerns, and Arabic and Persian join into connected letterforms.
 
 ### Fixed
+- The CJK paint test asserted a pixel budget that only holds when a system CJK
+  font is installed, so it failed on a bare Linux CI runner while passing on
+  any Mac. The assertion is now conditional on a fallback font actually being
+  present, and CI installs `fonts-noto-cjk` so the fallback path stays covered
+  instead of being skipped everywhere.
 - `npm/index.js` did not re-export `renderWebpSync`, so the function existed
   in the native binding but was unreachable through the package entry point.
   `npm/test.mjs` now asserts the wrapper exposes every binding entry point —
