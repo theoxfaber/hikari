@@ -459,7 +459,7 @@ benchmarks and supply chain.
 ## Development
 
 ```sh
-cargo test --workspace --exclude hikari-rs-node   # 84 tests
+cargo test --workspace --exclude hikari-rs-node   # 87 tests
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check
 cargo deny check

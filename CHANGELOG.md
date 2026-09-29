@@ -32,6 +32,12 @@ the `hikari-rs` facade crate.
   removed.
 - The PDF backend holds a dynamic font list keyed by `FontId` and emits one
   resource block per font used, instead of a fixed primary/fallback pair.
+  Caller fonts take resource tags from F3, leaving F1 for the embedded font and
+  F2 for the system fallback, so a caller font can never collide with the
+  fallback. Covered by three tests: a single registered font, two fonts in one
+  document, and an unregistered id (which errors rather than silently emitting
+  the wrong typeface — the PDF writer is the one backend that must not degrade,
+  because a document in the wrong font is a correctness bug someone ships).
 
 ### Behaviour worth knowing
 - An unregistered font id degrades to the embedded font rather than failing.

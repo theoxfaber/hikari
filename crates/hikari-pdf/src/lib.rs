@@ -225,21 +225,25 @@ impl PdfDoc {
                 "unknown font id {id}; register it before rendering"
             )));
         };
-        // PDF resource names must be unique per font.
-        let tag: &'static [u8; 2] = match self.fonts.len() {
-            0 => b"F1",
-            n if n < 25 => {
-                let letter = (b'A' + n as u8) as char;
-                let leaked: &'static mut [u8] =
-                    Box::leak(format!("F{letter}").into_bytes().into_boxed_slice());
-                (&*leaked).try_into().expect("two-byte tag")
-            }
-            n => {
+        // PDF resource names must be unique per font. F1 is the embedded font
+        // and F2 is the system fallback (both fixed in `new`), so caller fonts
+        // number from F3 up. The tag is the number itself rather than a letter
+        // so the sequence stays readable, and skipping F2 removes any chance of
+        // a caller font colliding with the fallback slot.
+        let index = self.fonts.len();
+        let tag: &'static [u8; 2] = if index == 0 {
+            b"F1"
+        } else {
+            let n = index + 2;
+            if n > 9 {
                 return Err(Error::Asset(format!(
-                    "too many distinct fonts in one document ({n}); PDF font \
-                     resource names here only run to FZ"
-                )))
+                    "too many distinct fonts in one document: font F{n} exceeds the \
+                     F1..F9 resource range reserved here"
+                )));
             }
+            let leaked: &'static mut [u8] =
+                Box::leak(format!("F{n}").into_bytes().into_boxed_slice());
+            (&*leaked).try_into().expect("two-byte tag")
         };
         let font = DocFont::parse(tag, &entry.name, entry.bytes())?;
         let index = self.fonts.len();
@@ -1298,6 +1302,131 @@ mod tests {
         let doc = render_pdf(&[page], PageSize::Custom { w: 400.0, h: 600.0 }).unwrap();
         assert!(count(&doc, b"/Subtype/Link") + count(&doc, b"/Subtype /Link") >= 1);
         assert!(count(&doc, b"https://pay.example/x") >= 1);
+    }
+
+    /// A font name as it appears in a PDF name string, where a space is
+    /// written `#20`. Asserting on the raw Rust name would silently miss.
+    fn pdf_name(name: &str) -> String {
+        name.replace(' ', "#20")
+    }
+
+    /// A visually distinct second font, if the host has one.
+    fn second_font() -> Option<Vec<u8>> {
+        const CANDIDATES: &[&str] = &[
+            "/System/Library/Fonts/Supplemental/Georgia.ttf",
+            "/Library/Fonts/Georgia.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf",
+        ];
+        CANDIDATES
+            .iter()
+            .find_map(|p| std::fs::read(p).ok())
+            .filter(|b| b.len() > 10_000)
+    }
+
+    #[test]
+    fn pdf_embeds_a_registered_font() {
+        // The PDF backend holds a font list keyed by FontId rather than a fixed
+        // primary/fallback pair, so a custom font must produce its own embedded
+        // font program and its own resource block.
+        let Some(bytes) = second_font() else {
+            eprintln!("no second font on this host; skipping");
+            return;
+        };
+        let id = hikari_core::register_font("Serif Brand", &bytes).expect("register");
+        let name = hikari_core::font_entry(id).expect("entry").name.clone();
+
+        let mut style = Style::column().with_size(400.0, 200.0);
+        style.font = Some(id);
+        let page = Node::container(
+            style,
+            vec![Node::text(
+                "Sphinx of black quartz",
+                Style::text(28.0, "#000000"),
+            )],
+        );
+        let doc = render_pdf(&[page], PageSize::Custom { w: 400.0, h: 200.0 }).expect("pdf");
+
+        assert!(
+            count(&doc, pdf_name(&name).as_bytes()) >= 1,
+            "PDF did not name the registered font {name:?}"
+        );
+        // One font program per distinct font used.
+        assert!(count(&doc, b"/FontFile2") >= 1, "no embedded font program");
+        // Type0/CID text keeps extracted text working, which is the thing a
+        // custom font must not break.
+        assert!(count(&doc, b"/ToUnicode") >= 1, "no ToUnicode CMap");
+    }
+
+    #[test]
+    fn pdf_with_two_fonts_embeds_both() {
+        // Two fonts in one document is the case the old fixed-pair design could
+        // not express, and the one that would silently reuse the wrong glyph
+        // remap if the index mapping were off.
+        let Some(bytes) = second_font() else {
+            return;
+        };
+        let id = hikari_core::register_font("Second Face", &bytes).expect("register");
+        let name = hikari_core::font_entry(id).expect("entry").name.clone();
+
+        let mut a = Style::column().with_size(400.0, 300.0);
+        a.font = None; // embedded
+        let mut b = Style::column().with_size(400.0, 300.0);
+        b.font = Some(id);
+
+        let page = Node::container(
+            a,
+            vec![
+                Node::text("Built in DejaVu", Style::text(24.0, "#000000")),
+                Node::container(
+                    b,
+                    vec![Node::text(
+                        "Set in the brand face",
+                        Style::text(24.0, "#000000"),
+                    )],
+                ),
+            ],
+        );
+        let doc = render_pdf(&[page], PageSize::Custom { w: 400.0, h: 300.0 }).expect("pdf");
+
+        assert!(count(&doc, b"DejaVuSans") >= 1, "built-in font missing");
+        assert!(
+            count(&doc, pdf_name(&name).as_bytes()) >= 1,
+            "registered font {name:?} missing from a two-font document"
+        );
+        // Two distinct font programs: one per face.
+        assert!(
+            count(&doc, b"/FontFile2") >= 2,
+            "expected two embedded font programs, found {}",
+            count(&doc, b"/FontFile2")
+        );
+        // Distinct resource tags, or the second face would address the first's
+        // glyphs.
+        // F1 is the embedded font, F3 the first caller font; F2 is reserved
+        // for the system fallback so the two can never collide.
+        assert!(
+            count(&doc, b"/F1") >= 1,
+            "embedded font resource tag missing"
+        );
+        assert!(
+            count(&doc, b"/F3") >= 1,
+            "caller font resource tag missing or colliding with the fallback slot"
+        );
+    }
+
+    #[test]
+    fn pdf_rejects_an_unregistered_font_id() {
+        // Unlike raster and SVG, which degrade to the embedded font, the PDF
+        // writer must not silently emit a document in the wrong typeface.
+        let mut style = Style::column().with_size(400.0, 200.0);
+        style.font = Some(987_654);
+        let page = Node::container(
+            style,
+            vec![Node::text("mystery font", Style::text(20.0, "#000000"))],
+        );
+        let err = render_pdf(&[page], PageSize::Custom { w: 400.0, h: 200.0 })
+            .expect_err("an unregistered font id must not render silently");
+        assert!(err.to_string().contains("font"), "unhelpful error: {err}");
     }
 
     #[test]
