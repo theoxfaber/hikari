@@ -423,3 +423,132 @@ fn every_mode_over_a_full_range_of_backdrops() {
         }
     }
 }
+
+/// Every separable mode, i.e. the ones the integer path implements.
+const MODES: [BlendMode; 11] = [
+    BlendMode::Multiply,
+    BlendMode::Screen,
+    BlendMode::Lighten,
+    BlendMode::Darken,
+    BlendMode::ColorDodge,
+    BlendMode::ColorBurn,
+    BlendMode::HardLight,
+    BlendMode::SoftLight,
+    BlendMode::Difference,
+    BlendMode::Exclusion,
+    BlendMode::Normal,
+];
+
+/// Mid-grey text over a dark backdrop.
+fn img(mode: BlendMode) -> image::RgbaImage {
+    let png = render_png(
+        &Node::container(
+            Style::centered()
+                .with_size(400.0, 200.0)
+                .with_background("#202020"),
+            vec![Node::text(
+                "IIII",
+                Style::text(150.0, "#808080").with_blend_mode(mode),
+            )],
+        ),
+        400,
+        200,
+    )
+    .expect("render");
+    image::load_from_memory(&png).expect("decode").to_rgba8()
+}
+
+/// The most-covered glyph pixel.
+///
+/// Found by scanning rather than hardcoding a coordinate, which would depend on
+/// hinting and exact metrics and would silently test background instead of a
+/// glyph stem the moment either changed.
+fn peak(mode: BlendMode) -> u8 {
+    img(mode)
+        .pixels()
+        .map(|p| p.0[0])
+        .max()
+        .expect("non-empty image")
+}
+
+#[test]
+fn normal_text_is_unchanged() {
+    // The reference: grey text on a dark backdrop. Every other mode is compared
+    // against this, so a regression in the blend shows as a *difference* rather
+    // than needing a hardcoded pixel value.
+    assert_eq!(peak(BlendMode::Normal), 0x80);
+}
+
+#[test]
+fn every_separable_mode_changes_the_glyph_colour() {
+    // The core assertion. With the saturation bug all eleven read 255; with a
+    // mid-grey source over a dark backdrop, none of them should.
+    for mode in MODES {
+        let v = peak(mode);
+        assert_ne!(
+            v, 255,
+            "{mode:?} peaked at 255 — saturated, so the blend did nothing"
+        );
+    }
+}
+
+#[test]
+fn multiply_text_is_darker_than_normal() {
+    // 0x80 * 0x20 / 255 ≈ 0x10, so multiply darkens sharply against a 0x80 normal.
+    let mul = peak(BlendMode::Multiply);
+    assert!(
+        mul < 0x40,
+        "multiply of grey over near-black should be much darker, got {mul}"
+    );
+}
+
+#[test]
+fn screen_text_is_lighter_than_normal() {
+    // screen of 0x80 over 0x20 ≈ 0x88, lighter than the 0x80 normal.
+    let screen = peak(BlendMode::Screen);
+    assert!(
+        screen > 0x80,
+        "screen of grey over near-black should lighten, got {screen}"
+    );
+}
+
+#[test]
+fn difference_text_inverts_the_gap() {
+    // |0x80 - 0x20| = 0x60.
+    let dif = peak(BlendMode::Difference);
+    assert!(
+        (0x40..0x80).contains(&dif),
+        "difference should land near 0x60, got {dif}"
+    );
+}
+
+#[test]
+fn hardlight_is_not_color_dodge() {
+    // A dark source takes hard-light's multiply branch, so it darkens; color-dodge
+    // with a dark source barely moves. This is the assertion that caught hard-light
+    // being aliased to dodge.
+    let hard = peak(BlendMode::HardLight);
+    let dodge = peak(BlendMode::ColorDodge);
+    assert_ne!(
+        hard, dodge,
+        "hard-light behaved identically to color-dodge: {hard}"
+    );
+}
+
+#[test]
+fn the_non_separable_modes_degrade_to_normal_on_text() {
+    // Documented behaviour, pinned: these four mix whole-colour functions, so the
+    // integer path routes them to `Normal` rather than producing a wrong colour.
+    for mode in [
+        BlendMode::Hue,
+        BlendMode::Saturation,
+        BlendMode::Color,
+        BlendMode::Luminosity,
+    ] {
+        assert_eq!(
+            peak(mode),
+            peak(BlendMode::Normal),
+            "{mode:?} should degrade to Normal on the glyph path"
+        );
+    }
+}

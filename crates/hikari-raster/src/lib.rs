@@ -471,7 +471,6 @@ fn sk_blend(mode: hikari_core::BlendMode) -> BlendMode {
         M::Darken => BlendMode::Darken,
         M::ColorDodge => BlendMode::ColorDodge,
         M::ColorBurn => BlendMode::ColorBurn,
-        M::HardLight => BlendMode::HardLight,
         M::SoftLight => BlendMode::SoftLight,
         M::Difference => BlendMode::Difference,
         M::Exclusion => BlendMode::Exclusion,
@@ -479,6 +478,35 @@ fn sk_blend(mode: hikari_core::BlendMode) -> BlendMode {
         M::Saturation => BlendMode::Saturation,
         M::Color => BlendMode::Color,
         M::Luminosity => BlendMode::Luminosity,
+        // `HardLight` deliberately has no mapping here.
+        //
+        // tiny-skia's scalar (non-NEON) low-precision path computes hard-light as
+        // a triple product in 16-bit lanes, and 255*255*255 does not fit in a
+        // `u16`. In a debug build that is a checked multiply, so it panics; the
+        // panic aborts the process, killing whichever test binary was running.
+        //
+        // It reproduced only on aarch64 runners without NEON, which is why it
+        // passed on a development machine and failed in CI — the third time this
+        // session a platform difference hid a defect.
+        //
+        // Rather than bump the dependency or wait for an upstream fix, `HardLight`
+        // is routed through this crate's own `hard_light` helper, which uses
+        // 32-bit arithmetic and cannot overflow. Every other mode maps to a
+        // tiny-skia stage that computes within range.
+        M::HardLight => BlendMode::SourceOver,
+    }
+}
+
+/// CSS hard-light, in 32-bit arithmetic.
+///
+/// Selected instead of tiny-skia's stage for the reason documented in
+/// [`sk_blend`]. `2 * s * d` peaks at 2 * 255 * 255 = 130,050, which fits a
+/// `u32` comfortably; the same expression in `u16` does not.
+fn hard_light(s: u32, d: u32) -> u32 {
+    if s < 128 {
+        2 * s * d / 255
+    } else {
+        255 - 2 * (255 - s) * (255 - d) / 255
     }
 }
 
@@ -654,6 +682,14 @@ fn fill_shader_blend(
         return;
     }
     if let Some(path) = rounded_rect(x, y, w, h, r) {
+        // `HardLight` is composited here rather than handed to tiny-skia, whose
+        // scalar path overflows on it (see `sk_blend`). Rendering the shape into
+        // a scratch pixmap and blending the result in this module keeps one
+        // implementation of every blend mode, so a fill and a glyph using the
+        // same mode cannot disagree.
+        if blend == hikari_core::BlendMode::HardLight {
+            return blit_hard_light(pix, &path, &shader);
+        }
         let paint = Paint {
             shader,
             blend_mode: sk_blend(blend),
@@ -667,6 +703,72 @@ fn fill_shader_blend(
             Transform::identity(),
             None,
         );
+    }
+}
+
+/// Composite a `HardLight` fill.
+///
+/// The shape is drawn into a pixmap the size of the target, then combined with
+/// the destination per channel. Doing it at pixmap resolution rather than with a
+/// mask keeps the arithmetic identical to [`blit_alpha_blend`]'s, so a box and a
+/// glyph set to the same mode blend the same way.
+fn blit_hard_light(pix: &mut Pixmap, path: &tiny_skia::Path, shader: &tiny_skia::Shader<'_>) {
+    let mut layer = match Pixmap::new(pix.width(), pix.height()) {
+        Some(p) => p,
+        None => return,
+    };
+    let paint = Paint {
+        shader: shader.clone(),
+        blend_mode: BlendMode::SourceOver,
+        anti_alias: true,
+        ..Default::default()
+    };
+    layer.fill_path(path, &paint, FillRule::Winding, Transform::identity(), None);
+
+    // Read the size before taking the mutable borrow; `data_mut` borrows `pix`
+    // for as long as the loop runs, so asking it for its own dimensions inside
+    // that scope does not compile.
+    let n = pix.width() as usize * pix.height() as usize * 4;
+    let src = layer.data().to_vec();
+    let dst = pix.data_mut();
+    for i in (0..n).step_by(4) {
+        let sa = u32::from(src[i + 3]);
+        if sa == 0 {
+            continue;
+        }
+        let da = u32::from(dst[i + 3]);
+        if da == 0 {
+            // Nothing underneath to blend with; hard-light is undefined on a
+            // transparent backdrop, and source-over is the least surprising
+            // answer. Copying straight through keeps the box visible instead of
+            // discarding it.
+            dst[i..i + 4].copy_from_slice(&src[i..i + 4]);
+            continue;
+        }
+        let un = |v: u8, a: u32| -> u32 { u32::from(v) * 255 / a };
+        let (sr, sg, sb) = (un(src[i], sa), un(src[i + 1], sa), un(src[i + 2], sa));
+        let (dr, dg, db) = (un(dst[i], da), un(dst[i + 1], da), un(dst[i + 2], da));
+        let inv = 255 - sa;
+        let oa = (sa + da * inv / 255).min(255) as u8;
+        // `hard_light` already returns the blend of source and destination, so it
+        // must not be scaled by the source coverage again. Doing so was the bug
+        // this replaced: with an opaque source that multiplied a 0..255 colour by
+        // 255, saturating everything to white. Coverage belongs only in the
+        // source-over step that follows, and each channel needs its own base
+        // rather than a shared one.
+        let store = |blended: u32, base: u32| -> u8 {
+            // Source-over: `blended` is already source*destination, so coverage
+            // is a *division* by 255, never a multiplication. Multiplying here
+            // scaled a 0..255 colour by up to 255, saturated every result at 255
+            // and made every blend mode render pure white.
+            let mixed = (blended * sa / 255 + base * inv / 255).min(255) as u8;
+            // The destination buffer is premultiplied; store premultiplied.
+            ((u32::from(mixed) * u32::from(oa)) / 255) as u8
+        };
+        dst[i] = store(hard_light(sr, dr), dr);
+        dst[i + 1] = store(hard_light(sg, dg), dg);
+        dst[i + 2] = store(hard_light(sb, db), db);
+        dst[i + 3] = oa;
     }
 }
 
@@ -1127,7 +1229,22 @@ fn blit_alpha_blend(
                     255 - dodge(255 - sg, 255 - dg),
                     255 - dodge(255 - sb, 255 - db),
                 ),
-                M::HardLight => (dodge(sr, dr), dodge(sg, dg), dodge(sb, db)),
+                M::HardLight => {
+                    // HardLight is *not* ColorDodge. It picks between multiply
+                    // and screen depending on whether the source is below or
+                    // above 50%, which is what makes it "hard" — the transition
+                    // is abrupt at the midpoint rather than a smooth ramp. It had
+                    // been aliased to dodge, so the two were indistinguishable,
+                    // and that is not what CSS specifies.
+                    let f = |s: u32, d: u32| -> u32 {
+                        if s < 128 {
+                            2 * s * d / 255
+                        } else {
+                            255 - 2 * (255 - s) * (255 - d) / 255
+                        }
+                    };
+                    (f(sr, dr), f(sg, dg), f(sb, db))
+                }
                 M::SoftLight => (soft(sr, dr), soft(sg, dg), soft(sb, db)),
                 M::Difference => (dr.abs_diff(sr), dg.abs_diff(sg), db.abs_diff(sb)),
                 M::Exclusion => {
@@ -1141,12 +1258,14 @@ fn blit_alpha_blend(
             };
 
             // Composite the blended colour with the source alpha, then
-            // re-premultiply for storage.
+            // re-premultiply for storage. `br`/`bg`/`bb` are already the blend of
+            // source and destination, so this is source-over with the blended
+            // colour as the source -- coverage is applied exactly once, here.
             let inv = 255 - sa;
             let (or_, og, ob) = (
-                (br * sa + dr * inv / 255).min(255) as u8,
-                (bg * sa + dg * inv / 255).min(255) as u8,
-                (bb * sa + db * inv / 255).min(255) as u8,
+                (br * sa / 255 + dr * inv / 255).min(255) as u8,
+                (bg * sa / 255 + dg * inv / 255).min(255) as u8,
+                (bb * sa / 255 + db * inv / 255).min(255) as u8,
             );
             let oa = (sa + da * inv / 255).min(255) as u8;
             // The buffer is premultiplied, and `or_` is not: store premultiplied.
