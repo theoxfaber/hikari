@@ -146,9 +146,21 @@ pub fn render_to_rgba(placed: &Placed, width: u32, height: u32) -> Result<Vec<u8
     Ok(unpremultiply(&pix))
 }
 
-/// Drop shadow: blurred silhouette of the (spread-expanded) box, tinted and
-/// composited beneath the box. Three box-blur passes approximate a gaussian.
+/// Shadow: blurred silhouette of the (spread-expanded) box, tinted and
+/// composited. Three box-blur passes approximate a gaussian.
+///
+/// [`hikari_core::ShadowKind::Drop`] paints beneath the box. The inset kinds
+/// paint *inside* it and are built by difference rather than by silhouette: the
+/// shadow is the box minus its own offset, shrunken copy, which is what makes a
+/// shadow appear to come from an edge rather than from behind the object.
 fn paint_shadow(pix: &mut Pixmap, node: &Placed, x: f32, y: f32, shadow: &hikari_core::Shadow) {
+    use hikari_core::ShadowKind;
+
+    if shadow.kind != ShadowKind::Drop {
+        paint_inset_shadow(pix, node, x, y, shadow);
+        return;
+    }
+
     let (sw, sh) = (
         (node.w + 2.0 * shadow.spread).max(1.0),
         (node.h + 2.0 * shadow.spread).max(1.0),
@@ -180,15 +192,144 @@ fn paint_shadow(pix: &mut Pixmap, node: &Placed, x: f32, y: f32, shadow: &hikari
         );
     }
     // Reuse alpha compositing: blurred alpha becomes coverage, tint = color.
+    // The shadow belongs to the node, so it blends the way the node does -- a
+    // `multiply` box casts a shadow that multiplies too, which is what makes the
+    // effect coherent rather than compositing a grey haze over a multiplied
+    // surface.
     let cov: Vec<u8> = tmp.data().iter().skip(3).step_by(4).copied().collect();
-    blit_alpha(
+    blit_alpha_blend(
         pix,
         &cov,
-        tw as usize,
-        th as usize,
-        (x - shadow.spread - margin as f32 + shadow.dx).round() as i32,
-        (y - shadow.spread - margin as f32 + shadow.dy).round() as i32,
+        Blit::at(
+            tw as usize,
+            th as usize,
+            (x - shadow.spread - margin as f32 + shadow.dx).round() as i32,
+            (y - shadow.spread - margin as f32 + shadow.dy).round() as i32,
+        ),
         shadow.color,
+        node.style.blend.unwrap_or_default(),
+    );
+}
+
+/// Inset shadow: the box's own coverage minus the coverage of an offset, shrunk
+/// copy of itself, leaving a band along the edges the offset points away from.
+///
+/// The subtraction is what makes this correct rather than a dark overlay. An
+/// overlay would dim the whole interior; a difference leaves the interior
+/// untouched and paints only the band, which is what `inset` means in CSS.
+///
+/// `InsetEdge` skips the blur, giving the hard-edged pressed look. A sharp inset
+/// is a legitimate effect in its own right, and forcing a minimum blur on it
+/// would make it unreachable.
+fn paint_inset_shadow(
+    pix: &mut Pixmap,
+    node: &Placed,
+    x: f32,
+    y: f32,
+    shadow: &hikari_core::Shadow,
+) {
+    use hikari_core::ShadowKind;
+
+    let w = node.w.ceil() as i32;
+    let h = node.h.ceil() as i32;
+    if w <= 0 || h <= 0 {
+        return;
+    }
+
+    // Work in a box-local buffer so the inset can be clipped to the rounded
+    // silhouette; blitting straight into `pix` would spill past the corners.
+    let mut tmp = match Pixmap::new(w as u32, h as u32) {
+        Some(p) => p,
+        None => return,
+    };
+    fill_solid(
+        &mut tmp,
+        0.0,
+        0.0,
+        node.w,
+        node.h,
+        node.style.radius,
+        hikari_core::Color::rgb(255, 255, 255),
+    );
+
+    // The subtracted copy: the same box, offset inward by (dx, dy) and
+    // contracted by `spread`. A negative spread widens the cut, which is how CSS
+    // expresses an outset inset.
+    let (ix, iy) = (shadow.dx, shadow.dy);
+    let iw = (node.w - 2.0 * shadow.spread - ix * 2.0).max(0.0);
+    let ih = (node.h - 2.0 * shadow.spread - iy * 2.0).max(0.0);
+    if iw > 0.0 && ih > 0.0 {
+        // Subtract the interior by sampling its own coverage. Working on the
+        // alpha bytes directly is both simpler and more accurate than asking the
+        // rasterizer to blend: there is no premultiplied/unpremultiplied round
+        // trip to get wrong, and the result is exactly "silhouette minus
+        // interior", which is what an inset is.
+        let cut_x = (ix + shadow.spread).max(0.0);
+        let cut_y = (iy + shadow.spread).max(0.0);
+        let mut cut = match Pixmap::new(w as u32, h as u32) {
+            Some(p) => p,
+            None => return,
+        };
+        fill_solid(
+            &mut cut,
+            cut_x,
+            cut_y,
+            iw,
+            ih,
+            (node.style.radius - shadow.spread).max(0.0),
+            hikari_core::Color::rgb(255, 255, 255),
+        );
+        let cw = cut.width() as i32;
+        let cut_alpha: Vec<u8> = cut.data().iter().skip(3).step_by(4).copied().collect();
+        for row in 0..h {
+            for col in 0..w {
+                let a = row * cw + col;
+                if a < 0 || a as usize >= cut_alpha.len() {
+                    continue;
+                }
+                let inside = (col as f32) >= cut_x
+                    && (col as f32) < cut_x + iw
+                    && (row as f32) >= cut_y
+                    && (row as f32) < cut_y + ih;
+                if !inside {
+                    continue;
+                }
+                let idx = (row * w + col) as usize * 4;
+                let here = tmp.data()[idx + 3];
+                let there = cut_alpha[a as usize];
+                // `a - b` clamped: removing the interior from the silhouette.
+                tmp.data_mut()[idx + 3] = here.saturating_sub(there);
+            }
+        }
+    }
+
+    // The kind decides whether there is a blur, not the blur value. `InsetEdge`
+    // is the hard-edged variant by definition, so a blur radius on it is ignored
+    // rather than honoured — otherwise the "sharp" inset was unreachable, since
+    // a caller passing any nonzero blur got a soft one.
+    //
+    // `InsetTop` is directional: it gets a shorter radius, because a symmetric
+    // gaussian would bleed the band down the other three edges and turn a top
+    // light into an all-round vignette.
+    let radius = match shadow.kind {
+        ShadowKind::InsetEdge => 0,
+        ShadowKind::InsetTop => (shadow.blur.max(1.0) / 2.0).ceil() as usize,
+        ShadowKind::Drop => unreachable!("drop shadows return before this point"),
+    };
+    if radius > 0 {
+        blur_bytes(tmp.data_mut(), w as usize, h as usize, radius);
+    }
+
+    // Premultiply by the shadow alpha so the band honours it exactly once, then
+    // tint. `blit_alpha` treats the source as coverage, which is what the
+    // difference left behind.
+    let cov: Vec<u8> = tmp.data().iter().skip(3).step_by(4).copied().collect();
+    blit_alpha_blend(
+        pix,
+        &cov,
+        Blit::at(w as usize, h as usize, x.round() as i32, y.round() as i32),
+        shadow.color,
+        node.style.blend.unwrap_or_default(),
     );
 }
 
@@ -253,17 +394,32 @@ fn paint_box(node: &Placed, pix: &mut Pixmap, dx: f32, dy: f32) -> Result<(), Er
     use hikari_core::Media;
     let x = dx + node.x;
     let y = dy + node.y;
-    // Shadow beneath everything else.
+    // A drop shadow is painted beneath everything else. Inset shadows cannot be:
+    // they live *inside* the box, so painting them first would have the
+    // background drawn straight over them and the effect would silently vanish.
+    // That is exactly what happened — an inset shadow produced byte-identical
+    // output to no shadow at all, which reads as "the feature does nothing".
     if let Some(shadow) = node.style.shadow {
-        paint_shadow(pix, node, x, y, &shadow);
+        if shadow.kind == hikari_core::ShadowKind::Drop {
+            paint_shadow(pix, node, x, y, &shadow);
+        }
     }
+    // The node's blend mode applies to everything it paints, so that
+    // `multiply` on a box means multiply for its border, background, image and
+    // text alike rather than only for whichever of those a caller remembered.
+    let blend = node.style.blend.unwrap_or_default();
     // Border ring first, then background inset by the border width.
     if node.style.border > 0.0 {
         let bc = node
             .style
             .border_color
             .unwrap_or(hikari_core::Color::rgb(0, 0, 0));
-        fill_solid(pix, x, y, node.w, node.h, node.style.radius, bc);
+        fill_solid_blend(
+            pix,
+            PaintBox::rounded(x, y, node.w, node.h, node.style.radius),
+            bc,
+            blend,
+        );
     }
     // `background-clip: text` consumes the background as glyph fill.
     let clipped = node.text.is_some() && node.style.clip_text && node.style.background.is_some();
@@ -274,19 +430,23 @@ fn paint_box(node: &Placed, pix: &mut Pixmap, dx: f32, dy: f32) -> Result<(), Er
             paint_background(
                 pix,
                 bg,
-                x + b,
-                y + b,
-                node.w - 2.0 * b,
-                node.h - 2.0 * b,
-                inset_r,
+                PaintBox::rounded(x + b, y + b, node.w - 2.0 * b, node.h - 2.0 * b, inset_r),
+                blend,
             );
         }
     }
     if let Some(Media::Image { bytes, fit }) = &node.media {
-        draw_image(bytes, *fit, node, pix, x, y)?;
+        draw_image(bytes, *fit, node, pix, x, y, blend)?;
+    }
+    // Inset shadows paint after the box's own background but before its content,
+    // so the effect sits on the surface rather than under it.
+    if let Some(shadow) = node.style.shadow {
+        if shadow.kind != hikari_core::ShadowKind::Drop {
+            paint_shadow(pix, node, x, y, &shadow);
+        }
     }
     if let Some(text) = &node.text {
-        draw_text(text, node, pix, x, y)?;
+        draw_text(text, node, pix, x, y, blend)?;
     }
     for child in &node.children {
         paint_box(child, pix, x, y)?;
@@ -295,27 +455,115 @@ fn paint_box(node: &Placed, pix: &mut Pixmap, dx: f32, dy: f32) -> Result<(), Er
 }
 
 /// Fill a (possibly rounded) rect with a solid color; no-op on degenerate boxes.
+/// Map a core [`hikari_core::BlendMode`] onto `tiny_skia`'s.
+///
+/// The mapping lives here rather than in `hikari-core` so core stays free of
+/// rasterizer types: the enum is part of the shared `Style` that SVG and PDF
+/// also read, and a layout crate should not have to know which backend will
+/// eventually paint it.
+fn sk_blend(mode: hikari_core::BlendMode) -> BlendMode {
+    use hikari_core::BlendMode as M;
+    match mode {
+        M::Normal => BlendMode::SourceOver,
+        M::Multiply => BlendMode::Multiply,
+        M::Screen => BlendMode::Screen,
+        M::Lighten => BlendMode::Lighten,
+        M::Darken => BlendMode::Darken,
+        M::ColorDodge => BlendMode::ColorDodge,
+        M::ColorBurn => BlendMode::ColorBurn,
+        M::HardLight => BlendMode::HardLight,
+        M::SoftLight => BlendMode::SoftLight,
+        M::Difference => BlendMode::Difference,
+        M::Exclusion => BlendMode::Exclusion,
+        M::Hue => BlendMode::Hue,
+        M::Saturation => BlendMode::Saturation,
+        M::Color => BlendMode::Color,
+        M::Luminosity => BlendMode::Luminosity,
+    }
+}
+
+/// A box to paint into, with its corner radius.
+///
+/// Bundling these five numbers is what keeps the fill signatures readable. They
+/// travelled together before blend modes, as five positional floats, which meant
+/// every call site had to remember the order and the compiler could not check it.
+/// Adding a blend mode then pushed the parameter count past the lint limit, and
+/// the honest fix is to name the group rather than to raise the limit.
+///
+/// Named `PaintBox` rather than `Box` so it does not shadow `std::boxed::Box`,
+/// which this file uses for the font registry.
+#[derive(Debug, Clone, Copy)]
+struct PaintBox {
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    r: f32,
+}
+
+impl PaintBox {
+    fn rounded(x: f32, y: f32, w: f32, h: f32, r: f32) -> Self {
+        Self { x, y, w, h, r }
+    }
+}
+
+/// Where a coverage mask goes: its size and its top-left position.
+///
+/// Grouped for the same reason as [`PaintBox`], and because a coverage blit is
+/// the one place where a swapped width and height would silently produce a
+/// garbled glyph rather than an error.
+#[derive(Debug, Clone, Copy)]
+struct Blit {
+    gw: usize,
+    gh: usize,
+    gx: i32,
+    gy: i32,
+}
+
+impl Blit {
+    fn at(gw: usize, gh: usize, gx: i32, gy: i32) -> Self {
+        Self { gw, gh, gx, gy }
+    }
+}
+
 fn fill_solid(pix: &mut Pixmap, x: f32, y: f32, w: f32, h: f32, r: f32, c: hikari_core::Color) {
+    fill_solid_blend(
+        pix,
+        PaintBox::rounded(x, y, w, h, r),
+        c,
+        hikari_core::BlendMode::Normal,
+    );
+}
+
+fn fill_solid_blend(
+    pix: &mut Pixmap,
+    at: PaintBox,
+    c: hikari_core::Color,
+    blend: hikari_core::BlendMode,
+) {
     let (cr, cg, cb, ca) = c.to_rgba_f32();
     let shader = tiny_skia::Shader::SolidColor(
         tiny_skia::Color::from_rgba(cr, cg, cb, ca).unwrap_or(tiny_skia::Color::BLACK),
     );
-    fill_shader(pix, x, y, w, h, r, shader);
+    fill_shader_blend(pix, at, shader, blend);
 }
 
 /// Paint any background (solid or gradient) clipped to a rounded rect.
 fn paint_background(
     pix: &mut Pixmap,
     bg: &hikari_core::Background,
-    x: f32,
-    y: f32,
-    w: f32,
-    h: f32,
-    r: f32,
+    at: PaintBox,
+    blend: hikari_core::BlendMode,
 ) {
     use hikari_core::Background;
+    let PaintBox { x, y, w, h, r } = at;
     match bg {
-        Background::Solid(c) => fill_solid(pix, x, y, w, h, r, *c),
+        // The solid case needs the blend too. It was left on the non-blend path
+        // by an incomplete edit, and the effect was that *every* blend mode
+        // silently did nothing for the most common kind of fill — a flat colour.
+        // Gradients blended correctly, which made the bug look like a blend-mode
+        // problem rather than a missed argument.
+        Background::Solid(c) => fill_solid_blend(pix, PaintBox::rounded(x, y, w, h, r), *c, blend),
         Background::Linear { angle_deg, stops } => {
             let ((x0, y0), (x1, y1)) = hikari_core::gradient_line(*angle_deg, x, y, w, h);
             let shader = tiny_skia::LinearGradient::new(
@@ -326,10 +574,10 @@ fn paint_background(
                 Transform::identity(),
             );
             match shader {
-                Some(s) => fill_shader(pix, x, y, w, h, r, s),
+                Some(s) => fill_shader_blend(pix, PaintBox::rounded(x, y, w, h, r), s, blend),
                 None => {
                     if let Some(first) = stops.first() {
-                        fill_solid(pix, x, y, w, h, r, first.color);
+                        fill_solid_blend(pix, PaintBox::rounded(x, y, w, h, r), first.color, blend);
                     }
                 }
             }
@@ -366,10 +614,10 @@ fn paint_background(
                 Transform::identity(),
             );
             match shader {
-                Some(s) => fill_shader(pix, x, y, w, h, r, s),
+                Some(s) => fill_shader_blend(pix, PaintBox::rounded(x, y, w, h, r), s, blend),
                 None => {
                     if let Some(first) = stops.first() {
-                        fill_solid(pix, x, y, w, h, r, first.color);
+                        fill_solid_blend(pix, PaintBox::rounded(x, y, w, h, r), first.color, blend);
                     }
                 }
             }
@@ -390,23 +638,25 @@ fn sk_stops(stops: &[hikari_core::ColorStop]) -> Vec<tiny_skia::GradientStop> {
         .collect()
 }
 
-/// Fill a rounded rect with an arbitrary shader.
-fn fill_shader(
+/// Fill a rounded box with `shader`, compositing with `blend`.
+///
+/// The blend mode is the node's, so every fill — solid, gradient — combines the
+/// same way. Routing all of them through one function is what keeps a
+/// `multiply` box looking identical whether it is filled flat or with a gradient.
+fn fill_shader_blend(
     pix: &mut Pixmap,
-    x: f32,
-    y: f32,
-    w: f32,
-    h: f32,
-    r: f32,
+    at: PaintBox,
     shader: tiny_skia::Shader<'_>,
+    blend: hikari_core::BlendMode,
 ) {
+    let PaintBox { x, y, w, h, r } = at;
     if w <= 0.0 || h <= 0.0 {
         return;
     }
     if let Some(path) = rounded_rect(x, y, w, h, r) {
         let paint = Paint {
             shader,
-            blend_mode: BlendMode::SourceOver,
+            blend_mode: sk_blend(blend),
             anti_alias: true,
             ..Default::default()
         };
@@ -482,6 +732,7 @@ fn draw_image(
     pix: &mut Pixmap,
     bx: f32,
     by: f32,
+    blend: hikari_core::BlendMode,
 ) -> Result<(), Error> {
     // Inset into the border ring so images never cover it.
     let bi = node.style.border;
@@ -539,7 +790,10 @@ fn draw_image(
         .ok_or_else(|| Error::Raster("tile alloc failed".into()))?;
     let paint = tiny_skia::PixmapPaint {
         opacity: 1.0,
-        blend_mode: BlendMode::SourceOver,
+        // The node's blend mode, so an image combines with the background the
+        // same way a fill would. `draw_pixmap` takes a real blend mode, so this
+        // is exact rather than an approximation.
+        blend_mode: sk_blend(blend),
         quality: tiny_skia::FilterQuality::Bilinear,
     };
     let mask = if node.style.radius > 0.5 {
@@ -648,7 +902,14 @@ fn rasterize_cached(font_id: u8, font: &Font, glyph: GlyphRef, px: f32) -> Glyph
     entry
 }
 
-fn draw_text(text: &str, node: &Placed, pix: &mut Pixmap, bx: f32, by: f32) -> Result<(), Error> {
+fn draw_text(
+    text: &str,
+    node: &Placed,
+    pix: &mut Pixmap,
+    bx: f32,
+    by: f32,
+    blend: hikari_core::BlendMode,
+) -> Result<(), Error> {
     use hikari_core::{line_height, sample_background, shape_text};
     let px = node.style.font_size.unwrap_or(16.0).max(1.0);
     let fg = node.style.color.unwrap_or(hikari_core::Color::rgb(0, 0, 0));
@@ -705,14 +966,12 @@ fn draw_text(text: &str, node: &Placed, pix: &mut Pixmap, bx: f32, by: f32) -> R
                     ),
                     None => fg,
                 };
-                blit_alpha(
+                blit_alpha_blend(
                     pix,
                     &g.bitmap,
-                    g.w,
-                    g.h,
-                    gx.round() as i32,
-                    gy.round() as i32,
+                    Blit::at(g.w, g.h, gx.round() as i32, gy.round() as i32),
                     color,
+                    blend,
                 );
             }
             cx += glyph_adv;
@@ -722,6 +981,14 @@ fn draw_text(text: &str, node: &Placed, pix: &mut Pixmap, bx: f32, by: f32) -> R
     Ok(())
 }
 
+/// Blit premultiplied coverage of a solid colour, source-over.
+///
+/// This is the original path, unchanged, and every render that names no blend
+/// mode goes through it — so a tree with no `blend` field is byte-identical to
+/// one produced before blend modes existed. It is deliberately *not* a wrapper
+/// around [`blit_alpha_blend`]: the blend path composites in unpremultiplied
+/// space and re-premultiplies, which rounds differently, and delegating here
+/// would have quietly moved every existing digest.
 fn blit_alpha(
     pix: &mut Pixmap,
     cov: &[u8],
@@ -765,6 +1032,161 @@ fn blit_alpha(
                 tiny_skia::PremultipliedColorU8::from_rgba(or_, og, ob, oa).unwrap_or(dst);
         }
     }
+}
+
+/// Blit premultiplied coverage of a solid colour, with a blend mode.
+///
+/// `Normal` takes the original integer path, which is what every render before
+/// v0.20 used and must stay byte-identical. Other modes blend the unpremultiplied
+/// colours and re-premultiply, so they are a separate branch rather than a
+/// change to the fast path.
+///
+/// Only the *separable* modes are implemented here. The non-separable four
+/// (`Hue`, `Saturation`, `Color`, `Luminosity`) mix using functions of the whole
+/// colour, not per channel, so they are routed to `Normal` for text and glyph
+/// shadows rather than silently producing a wrong colour. Text is the one
+/// surface a caller is most likely to set a blend mode on, so a wrong result
+/// here would be very visible; the honest degradation is a documented one.
+fn blit_alpha_blend(
+    pix: &mut Pixmap,
+    cov: &[u8],
+    at: Blit,
+    fg: hikari_core::Color,
+    blend: hikari_core::BlendMode,
+) {
+    let Blit { gw, gh, gx, gy } = at;
+    use hikari_core::BlendMode as M;
+
+    if !matches!(
+        blend,
+        M::Multiply
+            | M::Screen
+            | M::Lighten
+            | M::Darken
+            | M::ColorDodge
+            | M::ColorBurn
+            | M::HardLight
+            | M::SoftLight
+            | M::Difference
+            | M::Exclusion
+    ) {
+        // `Normal` and the non-separable modes both take the original path.
+        // `Normal` must, because it is what every render before v0.20 produced
+        // and rounding differences here would move every existing digest.
+        return blit_alpha(pix, cov, gw, gh, gx, gy, fg);
+    }
+
+    if gw == 0 || gh == 0 {
+        return;
+    }
+    let pw = pix.width() as i32;
+    let ph = pix.height() as i32;
+    let stride = pix.width();
+    let pixels = pix.pixels_mut();
+    for row in 0..gh {
+        for col in 0..gw {
+            let a = cov[row * gw + col] as u32;
+            if a == 0 {
+                continue;
+            }
+            let x = gx + col as i32;
+            let y = gy + row as i32;
+            if x < 0 || y < 0 || x >= pw || y >= ph {
+                continue;
+            }
+            let idx = (y as u32 * stride + x as u32) as usize;
+            let dst = pixels[idx];
+            let sa = a * u32::from(fg.a) / 255;
+
+            // The separable modes act on unpremultiplied colour, so undo the
+            // destination's premultiplication first. Guard the division: a fully
+            // transparent destination has no recoverable colour, and dividing by
+            // zero would poison every channel.
+            let da = u32::from(dst.alpha());
+            if da == 0 {
+                continue;
+            }
+            let (dr, dg, db) = (
+                u32::from(dst.red()) * 255 / da,
+                u32::from(dst.green()) * 255 / da,
+                u32::from(dst.blue()) * 255 / da,
+            );
+            let (sr, sg, sb) = (u32::from(fg.r), u32::from(fg.g), u32::from(fg.b));
+            let (br, bg, bb) = match blend {
+                M::Multiply => ((sr * dr) / 255, (sg * dg) / 255, (sb * db) / 255),
+                M::Screen => (
+                    255 - ((255 - sr) * (255 - dr)) / 255,
+                    255 - ((255 - sg) * (255 - dg)) / 255,
+                    255 - ((255 - sb) * (255 - db)) / 255,
+                ),
+                M::Lighten => (dr.max(sr), dg.max(sg), db.max(sb)),
+                M::Darken => (dr.min(sr), dg.min(sg), db.min(sb)),
+                M::ColorDodge => (dodge(sr, dr), dodge(sg, dg), dodge(sb, db)),
+                M::ColorBurn => (
+                    255 - dodge(255 - sr, 255 - dr),
+                    255 - dodge(255 - sg, 255 - dg),
+                    255 - dodge(255 - sb, 255 - db),
+                ),
+                M::HardLight => (dodge(sr, dr), dodge(sg, dg), dodge(sb, db)),
+                M::SoftLight => (soft(sr, dr), soft(sg, dg), soft(sb, db)),
+                M::Difference => (dr.abs_diff(sr), dg.abs_diff(sg), db.abs_diff(sb)),
+                M::Exclusion => {
+                    let f = |b: u32, s: u32| -> u32 { b + s - 2 * (b * s) / 255 };
+                    (f(dr, sr), f(dg, sg), f(db, sb))
+                }
+                // Unreachable: the guard above admits only separable modes, and
+                // every one is listed. `Normal` and the non-separable four return
+                // to `blit_alpha` before the loop.
+                M::Normal | M::Hue | M::Saturation | M::Color | M::Luminosity => (sr, sg, sb),
+            };
+
+            // Composite the blended colour with the source alpha, then
+            // re-premultiply for storage.
+            let inv = 255 - sa;
+            let (or_, og, ob) = (
+                (br * sa + dr * inv / 255).min(255) as u8,
+                (bg * sa + dg * inv / 255).min(255) as u8,
+                (bb * sa + db * inv / 255).min(255) as u8,
+            );
+            let oa = (sa + da * inv / 255).min(255) as u8;
+            // The buffer is premultiplied, and `or_` is not: store premultiplied.
+            // Without this every blend mode would come out far too dark, which is
+            // the classic symptom of forgetting the step rather than a subtle
+            // rounding difference.
+            let pm = |c: u8, alpha: u8| -> u8 { ((u32::from(c) * u32::from(alpha)) / 255) as u8 };
+            pixels[idx] =
+                tiny_skia::PremultipliedColorU8::from_rgba(pm(or_, oa), pm(og, oa), pm(ob, oa), oa)
+                    .unwrap_or(dst);
+        }
+    }
+}
+
+/// Color-dodge blend for one channel. `dodge(base, blend)` follows the CSS
+/// definition, with the `base == 1` special case pinned to 1 so the division
+/// cannot overflow.
+fn dodge(blend: u32, base: u32) -> u32 {
+    if base >= 255 {
+        255
+    } else if blend == 0 {
+        0
+    } else {
+        let v = base * 255 / (255 - blend);
+        v.min(255)
+    }
+}
+
+/// Soft-light blend for one channel, per the W3C compositing spec.
+fn soft(blend: u32, base: u32) -> u32 {
+    let d = (blend as f32 / 255.0).min(1.0);
+    let s = (base as f32 / 255.0).min(1.0);
+    let r = if d <= 0.5 {
+        s - (1.0 - 2.0 * d) * s * (1.0 - s)
+    } else {
+        let g = (2.0 * d - 1.0).max(0.0);
+        let b = 2.0 * s * (1.0 - s);
+        s + g * (b - s)
+    };
+    (r.clamp(0.0, 1.0) * 255.0).round() as u32
 }
 
 #[cfg(test)]
@@ -1008,6 +1430,7 @@ mod tests {
         let shadowed = Node::container(
             Style {
                 shadow: Some(hikari_core::Shadow {
+                    kind: hikari_core::ShadowKind::Drop,
                     dx: 8.0,
                     dy: 8.0,
                     blur: 12.0,
@@ -1029,6 +1452,7 @@ mod tests {
         let sharp = Node::container(
             Style {
                 shadow: Some(hikari_core::Shadow {
+                    kind: hikari_core::ShadowKind::Drop,
                     dx: 6.0,
                     dy: 6.0,
                     blur: 0.0,

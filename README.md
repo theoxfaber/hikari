@@ -424,10 +424,11 @@ Stated plainly, because a limitations section that hedges is worse than none.
 - **CSS coverage is narrow by design.** The `Style` surface is about two dozen
   fields: box model, `display` (`Flex`/`Grid`/`Block`), `dir`, `justify`,
   `align`, `gap`, `grow`, `absolute` with `left`/`top`, `radius`, `border`,
-  `background`, `color`, `font_size`, `max_width`, `aspect`, `shadow`,
-  `clip_text` and `link`. Absent: `float`, `position: fixed`/`sticky`,
-  `transform`, `z-index`, custom properties, `@media`, and shorthand
-  properties. This is a layout tree, not a CSS engine.
+  `background`, `color`, `font_size`, `max_width`, `aspect`, `shadow` (with a
+  `kind`), `blend`, `clip_text` and `link`. Absent: `float`,
+  `position: fixed`/`sticky`, `transform`, `z-index`, custom properties,
+  `@media`, masks, filters, and shorthand properties. This is a layout tree, not
+  a CSS engine.
 - **PDF is not PDF/A or PDF/UA conformant.** No tagging, no accessibility
   structure, no archival validation.
 - **No ecosystem yet.** No star history, no adopters, no battle-tested corpus.
@@ -462,7 +463,13 @@ Ordered by what most limits the project, not by what is easiest.
       bypassing the shaper, so no fallback could ever join. Each run is now split
       by coverage and shaped with a face that has the glyph. Found and fixed a
       bug where an unregistered `FontId` rerouted the whole run into the chain.
-- [ ] **Masks, filters, blend modes and shadow kinds.**
+- [x] **Blend modes and shadow kinds.** Fifteen blend modes (the eleven
+      separable ones plus `hue`, `saturation`, `color`, `luminosity`) applied to
+      a node's border, background, image, text *and* shadow, plus `InsetTop` and
+      `InsetEdge` shadows built by silhouette subtraction rather than as a dark
+      overlay. `Normal` is byte-identical to the pre-blend-mode path, verified
+      against the determinism card and all 20 corpus digests. Masks and filters
+      remain open.
 - [x] **Golden-image corpus** — 16 cases, one per capability, in
       `crates/hikari/tests/corpus.sha256`, diffed in CI, plus an ink assertion
       per case so a blank render cannot be blessed. Found a radial gradient that

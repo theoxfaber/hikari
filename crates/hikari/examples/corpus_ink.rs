@@ -338,6 +338,85 @@ fn cases() -> Vec<(&'static str, Node, u32, u32, usize)> {
             420,
             150_000,
         ),
+        (
+            "blend-multiply",
+            Node::container(
+                Style::row()
+                    .with_size(200.0, 200.0)
+                    .with_background("#ff0000"),
+                vec![Node::container(
+                    Style::new()
+                        .with_size(200.0, 200.0)
+                        .with_background("#00ff00")
+                        .with_blend_mode(hikari::BlendMode::Multiply),
+                    vec![],
+                )],
+            ),
+            200,
+            200,
+            // Multiply of green over red is black, so the whole frame is one
+            // colour and the content count is 0 by design. The floor is 0 and the
+            // real check is the digest plus blend_and_shadow's pixel assertions:
+            // this case exists to catch a change in the blend *result*, not to
+            // prove anything is visible. Recorded as 0 rather than omitted so a
+            // future change to the blend is visible as a digest mismatch here too.
+            0,
+        ),
+        (
+            "blend-screen-text",
+            Node::container(
+                Style::centered()
+                    .with_size(400.0, 200.0)
+                    .with_background("#404040"),
+                vec![Node::text(
+                    "Blend",
+                    Style::text(90.0, "#ffffff")
+                        .with_blend_mode(hikari::BlendMode::Difference),
+                )],
+            ),
+            400,
+            200,
+            5_000,
+        ),
+        (
+            "shadow-inset-top",
+            Node::container(
+                Style::centered()
+                    .with_size(300.0, 300.0)
+                    .with_background("#ffffff"),
+                vec![Node::container(
+                    Style::new()
+                        .with_size(200.0, 140.0)
+                        .with_background("#3b82f6")
+                        .with_radius(12.0)
+                        .with_shadow_kind(hikari::ShadowKind::InsetTop, 0.0, 6.0, 10.0, 0.0, "#000000"),
+                    vec![],
+                )],
+            ),
+            300,
+            300,
+            // The box is 200x140 = 28,000 px; the inset band is a small slice of it.
+            25_000,
+        ),
+        (
+            "shadow-inset-edge",
+            Node::container(
+                Style::centered()
+                    .with_size(300.0, 300.0)
+                    .with_background("#ffffff"),
+                vec![Node::container(
+                    Style::new()
+                        .with_size(200.0, 140.0)
+                        .with_background("#3b82f6")
+                        .with_radius(12.0)
+                        .with_shadow_kind(hikari::ShadowKind::InsetEdge, 0.0, 12.0, 40.0, 0.0, "#000000"),
+                    vec![],
+                )],
+            ),
+            300,
+            300,
+            25_000,
+        ),
     ]
 }
 

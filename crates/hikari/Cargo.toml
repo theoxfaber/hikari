@@ -34,6 +34,7 @@ image.workspace = true
 ed25519-dalek.workspace = true
 fontdue.workspace = true
 rustybuzz.workspace = true
+serde_json.workspace = true
 
 [[bench]]
 name = "render"

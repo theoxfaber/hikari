@@ -19,4 +19,8 @@ image-clipped 6686 5489ca54cb07dd8608f9eaf6a05d55e932ce0641c6463b372808b7f6f4631
 absolute-positioning 2096 6657a2b4a3ccaa59ce3c1f8295c40b9ffa8d5f3b7c19ad9f3280e1fca4b4b6cc # absolute offsets independent of flow
 nested-containers 7727 4215e24d10bc496f29391b7d67ab30a57dcaebeead511fad88ee0a8676250f11 # nested layout, margins and inherited padding
 opaque-alpha-strip 595 31206d4459c753425840b7ce4e06bd3e1ed77baf71d8b405b4af655785692519 # alpha channel stripping when the frame is fully opaque
+blend-multiply 584 03013c7140e41be1ded3c6e6578fdaf64365e72f36f781b3273330d5b307d728 # multiply compositing of a fill against its parent
+blend-screen-text 1568 979539ea52da158e90c2b713333364724f6b374c974565c58e10a4234d228dec # a blend mode reaching the glyph path, not just fills
+shadow-inset-top 2744 74f3ac821e8e72836159c110afb6c22154c8b34e57261fc39d3fccb14b8bab08 # an inset shadow staying inside the silhouette
+shadow-inset-edge 1877 38f5431402406b6c807df35e829231bdf345bc082e2bd7a2fd5e25031fe8e6d1 # the hard-edged inset variant ignoring any blur radius
 svg-reference 580 283abb82fa8b60c1039fb0b15a68f70afe40d10a5ae916fd3c98f2269639c0dd # text output shape and glyph ids

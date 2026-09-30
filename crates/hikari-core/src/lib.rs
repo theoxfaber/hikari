@@ -187,6 +187,11 @@ pub enum Display {
 /// Box shadow: offset blurred silhouette behind the box.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Shadow {
+    /// Which edge casts it, and therefore whether it lands behind or inside the
+    /// box. Defaults to [`ShadowKind::Drop`] so a tree serialized before v0.20
+    /// deserializes to the behaviour it rendered with then.
+    #[serde(default)]
+    pub kind: ShadowKind,
     /// Horizontal offset in px.
     pub dx: f32,
     /// Vertical offset in px.
@@ -197,6 +202,80 @@ pub struct Shadow {
     pub spread: f32,
     /// Shadow color (alpha respected).
     pub color: Color,
+}
+
+/// How a node's content combines with what is already painted beneath it.
+///
+/// Defaults to [`BlendMode::Normal`], which is what every render did before
+/// this existed, so a tree that names no blend mode is byte-identical. The
+/// separable blend modes are named after the Porter-Duff/Photoshop set they
+/// implement rather than their CSS spelling, because the CSS names are ambiguous
+/// in prose ("multiply" is both a mode and an operation) and the SVG `mix-blend-mode`
+/// values are the ones a reader will look up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum BlendMode {
+    /// Source over destination. The default, and ordinary alpha compositing.
+    #[default]
+    Normal,
+    /// Multiply, which darkens where both are dark.
+    Multiply,
+    /// Screen, the inverse of multiply.
+    Screen,
+    /// Lighten, per-channel `max`.
+    Lighten,
+    /// Darken, per-channel `min`.
+    Darken,
+    /// Colour dodge.
+    ColorDodge,
+    /// Colour burn.
+    ColorBurn,
+    /// Hard light.
+    HardLight,
+    /// Soft light.
+    SoftLight,
+    /// Difference: per-channel absolute difference.
+    Difference,
+    /// Exclusion, a lower-contrast difference.
+    Exclusion,
+    /// Hue from source, saturation and luminosity from destination.
+    Hue,
+    /// Saturation from source, hue and luminosity from destination.
+    Saturation,
+    /// Color from source, luminosity from destination.
+    Color,
+    /// Luminosity from source, hue and saturation from destination.
+    Luminosity,
+}
+
+impl BlendMode {
+    /// Whether SVG can express this mode. SVG 1.1 has no blend modes at all;
+    /// SVG 2 / CSS `mix-blend-mode` does, and every mode named here exists
+    /// there, so an SVG carrying one of these is not invalid — it just needs a
+    /// renderer that understands the newer spec. The non-separable four are the
+    /// ones most SVG consumers skip, so they are the ones worth reporting.
+    #[must_use]
+    pub const fn is_widely_supported_in_svg(self) -> bool {
+        !matches!(
+            self,
+            Self::Hue | Self::Saturation | Self::Color | Self::Luminosity
+        )
+    }
+}
+
+/// Which silhouette a shadow is cast from, and therefore where it falls.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum ShadowKind {
+    /// Blurred silhouette behind the box. The only kind implemented before
+    /// v0.20, and the default so existing trees are unchanged.
+    #[default]
+    Drop,
+    /// Shadow cast by the top edge only, inside the box. `inset 0 1px` in CSS.
+    InsetTop,
+    /// A hard-edged shadow offset inside the box, no blur. Useful for a
+    /// pressed or engraved look, which a blurred drop shadow cannot express.
+    InsetEdge,
 }
 
 /// How image content fills its box.
@@ -464,6 +543,11 @@ pub struct Style {
     /// Box shadow (painted beneath border/background).
     #[serde(default)]
     pub shadow: Option<Shadow>,
+    /// Blend mode for this node's content against what is beneath it.
+    /// `None` means [`BlendMode::Normal`], so a tree that names none renders
+    /// exactly as it did before blend modes existed.
+    #[serde(default)]
+    pub blend: Option<BlendMode>,
     /// PDF bookmark level (`None` = not in outline).
     #[serde(default)]
     pub bookmark: Option<u8>,
@@ -503,6 +587,7 @@ impl Default for Style {
             top: None,
             background: None,
             color: None,
+            blend: None,
             font_size: None,
             font: None,
             radius: 0.0,
@@ -682,12 +767,47 @@ impl Style {
     #[must_use]
     pub fn with_shadow(mut self, dx: f32, dy: f32, blur: f32, spread: f32, hex: &str) -> Self {
         self.shadow = Some(Shadow {
+            kind: ShadowKind::Drop,
             dx,
             dy,
             blur: blur.max(0.0),
             spread,
             color: Color::from_hex(hex),
         });
+        self
+    }
+
+    /// Box shadow cast by a specific edge. The `Drop` case is
+    /// [`with_shadow`](Self::with_shadow); the inset kinds land inside the box,
+    /// which is what a pressed or engraved look needs and a blurred drop shadow
+    /// cannot express.
+    #[must_use]
+    pub fn with_shadow_kind(
+        mut self,
+        kind: ShadowKind,
+        dx: f32,
+        dy: f32,
+        blur: f32,
+        spread: f32,
+        hex: &str,
+    ) -> Self {
+        self.shadow = Some(Shadow {
+            kind,
+            dx,
+            dy,
+            blur: blur.max(0.0),
+            spread,
+            color: Color::from_hex(hex),
+        });
+        self
+    }
+
+    /// Combine this node's content with what is beneath it. The default,
+    /// [`BlendMode::Normal`], is plain alpha compositing and is what every
+    /// render did before this existed.
+    #[must_use]
+    pub fn with_blend_mode(mut self, mode: BlendMode) -> Self {
+        self.blend = Some(mode);
         self
     }
 

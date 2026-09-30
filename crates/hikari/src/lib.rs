@@ -16,6 +16,7 @@ pub use hikari_core::{
     Background, Color, ColorStop, Display, Error, FlexDir, Flow, FontEntry, FontId, HashCache,
     ImgFit, Justify, Media, Node, Placed, PlacedAdvance, Style, BUILTIN_FONT,
 };
+pub use hikari_core::{BlendMode, Shadow, ShadowKind};
 pub use hikari_license::{Feature, License, LicenseError, Plan};
 pub use hikari_pdf::{
     render_pdf as render_pdf_pages, render_pdf_with as render_pdf_pages_with, Attachment, PageSize,

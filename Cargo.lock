@@ -656,6 +656,7 @@ dependencies = [
  "image",
  "rayon",
  "rustybuzz",
+ "serde_json",
 ]
 
 [[package]]

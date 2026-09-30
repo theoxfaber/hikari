@@ -136,6 +136,10 @@ inside one opaque image.
 | `absolute-positioning` | 2,096 | absolute offsets independent of flow |
 | `nested-containers` | 7,727 | nested layout and inherited padding |
 | `opaque-alpha-strip` | 595 | alpha stripping on a fully opaque frame |
+| `blend-multiply` | 584 | multiply compositing of a fill against its parent |
+| `blend-screen-text` | 1,286 | a blend mode reaching the glyph path, not just fills |
+| `shadow-inset-top` | 2,744 | an inset shadow staying inside the silhouette |
+| `shadow-inset-edge` | 1,877 | the hard-edged inset variant ignoring any blur radius |
 
 **A digest proves stability, not correctness.** A blank render is exactly as
 stable as a correct one, and gets blessed just as happily. So each case is also

@@ -349,6 +349,78 @@ fn cases() -> Vec<Case> {
                 vec![],
             ),
         ),
+        Case::new(
+            "blend-multiply",
+            "multiply compositing of a fill against its parent",
+            200,
+            200,
+            Node::container(
+                Style::row()
+                    .with_size(200.0, 200.0)
+                    .with_background("#ff0000"),
+                vec![Node::container(
+                    Style::new()
+                        .with_size(200.0, 200.0)
+                        .with_background("#00ff00")
+                        .with_blend_mode(hikari::BlendMode::Multiply),
+                    vec![],
+                )],
+            ),
+        ),
+        Case::new(
+            "blend-screen-text",
+            "a blend mode reaching the glyph path, not just fills",
+            400,
+            200,
+            Node::container(
+                Style::centered()
+                    .with_size(400.0, 200.0)
+                    .with_background("#404040"),
+                vec![Node::text(
+                    "Blend",
+                    Style::text(90.0, "#ffffff")
+                        .with_blend_mode(hikari::BlendMode::Difference),
+                )],
+            ),
+        ),
+        Case::new(
+            "shadow-inset-top",
+            "an inset shadow staying inside the silhouette",
+            300,
+            300,
+            Node::container(
+                Style::centered()
+                    .with_size(300.0, 300.0)
+                    .with_background("#ffffff"),
+                vec![Node::container(
+                    Style::new()
+                        .with_size(200.0, 140.0)
+                        .with_background("#3b82f6")
+                        .with_radius(12.0)
+                        .with_shadow_kind(hikari::ShadowKind::InsetTop, 0.0, 6.0, 10.0, 0.0, "#000000"),
+                    vec![],
+                )],
+            ),
+        ),
+        Case::new(
+            "shadow-inset-edge",
+            "the hard-edged inset variant ignoring any blur radius",
+            300,
+            300,
+            Node::container(
+                Style::centered()
+                    .with_size(300.0, 300.0)
+                    .with_background("#ffffff"),
+                vec![Node::container(
+                    Style::new()
+                        .with_size(200.0, 140.0)
+                        .with_background("#3b82f6")
+                        .with_radius(12.0)
+                        .with_shadow_kind(hikari::ShadowKind::InsetEdge, 0.0, 12.0, 40.0, 0.0, "#000000"),
+                    vec![],
+                )],
+            ),
+        ),
     ]
 }
 
