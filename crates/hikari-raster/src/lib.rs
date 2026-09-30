@@ -1161,14 +1161,24 @@ fn blit_alpha_blend(
     }
 }
 
-/// Color-dodge blend for one channel. `dodge(base, blend)` follows the CSS
-/// definition, with the `base == 1` special case pinned to 1 so the division
-/// cannot overflow.
+/// Color-dodge blend for one channel, following the CSS definition.
+///
+/// Both degenerate cases are pinned before the division, because the divisor
+/// `255 - blend` is zero when the source is pure white. That is not an exotic
+/// input: white text on a mid-grey box, which is exactly what the blend tests
+/// render. A `u32` division by zero aborts the process rather than panicking, so
+/// this took down the whole test binary on CI while passing on a machine whose
+/// text antialiasing happened not to produce a fully-white coverage sample.
+///
+/// The cases, in order:
+///   * `base >= 255` — the destination is already white; dodge cannot lighten it.
+///   * `blend >= 255` — the source is pure white; the result is white.
+///   * `blend == 0` — a black source changes nothing.
 fn dodge(blend: u32, base: u32) -> u32 {
-    if base >= 255 {
+    if base >= 255 || blend >= 255 {
         255
     } else if blend == 0 {
-        0
+        base
     } else {
         let v = base * 255 / (255 - blend);
         v.min(255)

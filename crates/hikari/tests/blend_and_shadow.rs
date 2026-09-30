@@ -341,3 +341,85 @@ fn shadow_kind_round_trips_through_json() {
          changes the render of an older document"
     );
 }
+
+#[test]
+fn dodge_blend_survives_a_fully_white_source() {
+    // A regression guard for a process abort, not a wrong pixel.
+    //
+    // The color-dodge formula divides by `255 - blend`, which is zero when the
+    // source is pure white. A `u32` division by zero aborts rather than panics,
+    // so this took down the entire test binary — and it only reproduced on CI,
+    // because it needs a glyph pixel with full coverage. The bug was live for
+    // the whole of the blend-mode change and only a Linux aarch64 runner
+    // produced the input.
+    //
+    // White text on a mid-grey box is the input. Asserting that the render
+    // *succeeds* is the whole test: there is no pixel value to check, because
+    // the failure mode was the process dying.
+    for mode in [
+        BlendMode::ColorDodge,
+        BlendMode::HardLight,
+        BlendMode::ColorBurn,
+    ] {
+        let png = render_png(
+            &Node::container(
+                Style::centered()
+                    .with_size(400.0, 200.0)
+                    .with_background("#404040"),
+                vec![Node::text(
+                    "White",
+                    Style::text(120.0, "#ffffff").with_blend_mode(mode),
+                )],
+            ),
+            400,
+            200,
+        )
+        .unwrap_or_else(|e| panic!("{mode:?} failed to render: {e}"));
+        assert!(png.len() > 500, "{mode:?} produced almost nothing");
+    }
+}
+
+#[test]
+fn every_mode_over_a_full_range_of_backdrops() {
+    // The abort above needed a specific backdrop. Sweeping the backdrops means
+    // the next degenerate input in a blend formula surfaces here rather than on
+    // someone else's machine.
+    let backdrops = [
+        "#000000", "#404040", "#808080", "#c0c0c0", "#ffffff", "#ff0000",
+    ];
+    for mode in [
+        BlendMode::Normal,
+        BlendMode::Multiply,
+        BlendMode::Screen,
+        BlendMode::Lighten,
+        BlendMode::Darken,
+        BlendMode::ColorDodge,
+        BlendMode::ColorBurn,
+        BlendMode::HardLight,
+        BlendMode::SoftLight,
+        BlendMode::Difference,
+        BlendMode::Exclusion,
+        BlendMode::Hue,
+        BlendMode::Saturation,
+        BlendMode::Color,
+        BlendMode::Luminosity,
+    ] {
+        for bg in backdrops {
+            let png = render_png(
+                &Node::container(
+                    Style::centered()
+                        .with_size(300.0, 120.0)
+                        .with_background(bg),
+                    vec![Node::text(
+                        "Ag",
+                        Style::text(64.0, "#ffffff").with_blend_mode(mode),
+                    )],
+                ),
+                300,
+                120,
+            )
+            .unwrap_or_else(|e| panic!("{mode:?} over {bg} failed to render: {e}"));
+            assert!(png.len() > 200, "{mode:?} over {bg} produced nothing");
+        }
+    }
+}
