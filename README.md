@@ -44,11 +44,11 @@ codebase are the unglamorous ones.
 - [Node.js](#nodejs)
 - [WebAssembly](#webassembly)
 - [Architecture](#architecture)
-- [Open core and Pro](#open-core-and-pro)
+- [Licence](#licence)
 - [Known limitations](#known-limitations)
 - [Roadmap](#roadmap)
 - [Development](#development)
-- [License](#license)
+- [Licence](#licence)
 
 ---
 
@@ -58,24 +58,25 @@ codebase are the unglamorous ones.
 |---|---|
 | **Layout** | Flexbox, CSS grid, block flow, absolute positioning, margins, borders, gaps |
 | **Text** | Shaping, bidi/RTL, word wrap, balanced headlines, fit-to-width, `background-clip: text` |
-| **Fonts** | Embedded subset by default, plus caller-supplied fonts via `register_font`, inherited through the tree |
-| **Scripts** | Latin, Greek, Cyrillic, Hebrew, Arabic with contextual joining, Persian. CJK via system fallback |
+| **Fonts** | Embedded layout-preserving subset plus a bundled OFL Hebrew face; caller-supplied fonts via `register_font`, inherited through the tree |
+| **Scripts** | Latin, Greek, Cyrillic, Hebrew, Arabic with contextual joining, Persian. CJK bundled behind an opt-in feature, else system fallback |
 | **Images** | PNG/JPEG/GIF/WebP decode, `cover`/`contain`/`fill`, rounded clipping, decode cache |
-| **Paint** | Solid, linear and radial gradients, box shadows (blurred raster + SVG `feDropShadow`) |
+| **Paint** | Solid, linear and radial gradients, drop and inset box shadows, 15 blend modes, `background-clip: text` |
+| **Fallbacks** | A shaped font chain: runs are split by glyph coverage and shaped per segment, so fallback text joins |
 | **Output** | PNG, SVG, animated GIF, animated APNG, lossless WebP, PDF with selectable text |
 | **Documents** | PDF outlines, link annotations, file attachments, pagination, repeating headers, metadata |
 | **Bindings** | Rust, Node.js (napi), WebAssembly (wasm-bindgen) |
 
-Bindings for PNG, SVG and WebP are free and MIT/Apache-2.0. Motion and PDF are
-Pro — see [Open core and Pro](#open-core-and-pro).
+Every backend above is free under MIT/Apache-2.0. There is no paid tier, no key
+material and no feature flag — see [Licence](#licence).
 
 ```sh
 cargo run -p hikari-rs --example og           # gradient banner
 cargo run -p hikari-rs --example card         # grid + image + rounded clip
 cargo run -p hikari-rs --example multilingual # Arabic, Persian, Hebrew, CJK
 cargo run -p hikari-rs --example cliptext     # background-clip: text
-cargo run -p hikari-rs --example motion       # animated GIF + APNG (Pro)
-cargo run -p hikari-rs --example invoice      # flowing multi-page PDF (Pro)
+cargo run -p hikari-rs --example motion       # animated GIF + APNG
+cargo run -p hikari-rs --example invoice      # flowing multi-page PDF
 cargo run -p hikari-rs --example determinism  # cross-platform digests
 ```
 
@@ -307,7 +308,7 @@ node npm/test.mjs
 | `renderPngSync(treeJson, w, h)` | `Buffer` |
 | `renderSvgSync(treeJson, w, h)` | `string` |
 | `renderWebpSync(treeJson, w, h)` | `Buffer`, lossless |
-| `renderPdfSync(pagesJson, w, h)` | `Buffer` (Pro) |
+| `renderPdfSync(pagesJson, w, h)` | `Buffer` |
 
 The tree is the node tree serialized as JSON. Node is externally tagged
 (`{ "Text": { … } }`), style fields are `snake_case`, and every field of
@@ -333,8 +334,7 @@ Colours accept CSS strings (`"#rrggbb"`, `"#rgb"`, `"#rrggbbaa"`) or an
 shorthand for `{ "Solid": … }`. Gradient forms are unchanged. Full types ship
 in `npm/index.d.ts`.
 
-PDF is a Pro feature and reads `HIKARI_LICENSE` and `HIKARI_PUBKEY` from the
-environment, so operators keep their own signing infrastructure.
+PDF is free and needs no key material or environment variable.
 
 ---
 
@@ -366,7 +366,6 @@ Node  ──▶  hikari-core   layout, shaping, measurement, flow
               │              ├──▶  hikari-svg      vector output
               │              ├──▶  hikari-animate  GIF / APNG
               │              ├──▶  hikari-pdf     selectable text, outlines, attachments
-              │              └──▶  hikari-license  offline ed25519 keys
               │
               └──▶  hikari (facade)  ──▶  hikari-node  ·  hikari-wasm
 ```
@@ -384,17 +383,21 @@ Zero `unsafe` blocks in the workspace, enforced by `unsafe_code = "forbid"`.
 
 ---
 
-## Open core and Pro
+## Licence
 
-Stills are free forever under MIT/Apache-2.0. Pro adds animated GIF and APNG,
-lossless WebP, and PDF documents, and funds the unglamorous work: font
-subsetting, PDF conformance, prebuilt binaries for every OS and architecture,
-and the WASM diet.
+MIT or Apache-2.0, at your option. Every backend — stills, animation and PDF —
+is available with no key material, no environment variable and no feature flag.
+There is no paid tier.
 
-Pro keys are `ed25519`-signed strings (`hk1.…`) verified offline. No network
-calls, no telemetry, no render metering, no seat counting. The enforcement code
-is in the repository and readable, which is a deliberate choice: the check plus
-commercial terms, rather than obfuscation. See [PRICING.md](PRICING.md).
+There was one until v0.20. PDF and animation were gated behind an `ed25519` key
+checked offline. That was a commercial-terms mechanism rather than a technical
+one, so anyone could remove it in a fork, and selling features behind it cost
+more credibility than it earned. The gate and the licence crate are deleted; the
+CHANGELOG records the change.
+
+The embedded fonts are OFL-1.1, which is MIT-compatible and permits embedding in
+a closed-source product. Licence text ships beside each face in
+`crates/hikari-core/assets/fonts/`.
 
 ---
 
@@ -433,11 +436,13 @@ Stated plainly, because a limitations section that hedges is worse than none.
   structure, no archival validation.
 - **No ecosystem yet.** No star history, no adopters, no battle-tested corpus.
   The determinism work exists precisely to make that corpus possible.
-- **The git history is one day old.** All seven commits were made on
-  2026-09-29/30. There are no release tags, no crates.io or npm downloads and
-  no external contributors, so there is no track record to judge this by. The
-  release timeline in [CHANGELOG.md](CHANGELOG.md) is a claim about what
-  changed, not something derivable from history.
+- **The project is days old.** Every commit was made between 2026-09-29 and
+  2026-10-02. There are no crates.io or npm downloads, no external
+  contributors and no adopters, so there is no track record to judge this by.
+  The release timeline in [CHANGELOG.md](CHANGELOG.md) is a claim about what
+  changed, not something derivable from history — with a history this short,
+  that distinction matters, and a reviewer who counted the commits is right to
+  distrust the version numbers.
 
 ---
 
@@ -524,8 +529,12 @@ from the current source.
 
 ---
 
-## License
+## Licence
 
-MIT or Apache-2.0, at your option. Pro features are source-available under
-[LICENSE-COMMERCIAL.md](LICENSE-COMMERCIAL.md). The embedded DejaVu Sans is
-under the DejaVu Fonts License.
+MIT or Apache-2.0, at your option — either one is sufficient. Use it
+commercially, modify it, redistribute it, embed it in a closed-source product.
+The only requirements are the licence text and the notice.
+
+The embedded DejaVu Sans and Noto faces are under OFL-1.1 / the DejaVu Fonts
+License, both permissive and both compatible with closed-source redistribution.
+

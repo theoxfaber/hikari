@@ -92,9 +92,8 @@ export interface HikariNode {
   /**
    * Render pages to PDF bytes with selectable text.
    *
-   * Pro feature. Requires `HIKARI_LICENSE` (an `hk1.…` key) and
-   * `HIKARI_PUBKEY` (64 hex chars, the 32-byte ed25519 verify key) in the
-   * environment. Throws if either is missing or rejected.
+   * No key material or environment variable is needed; every backend is
+   * available under the project's MIT/Apache-2.0 licence.
    */
   renderPdfSync(
     pagesJson: string,

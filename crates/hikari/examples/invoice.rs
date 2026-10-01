@@ -1,13 +1,11 @@
-//! invoice.rs target: flowing A4 Pro PDF demo (dev license).
+//! invoice.rs target: flowing multi-page A4 PDF demo.
 //!
 //! One flowing document node becomes N pages: line items split across
 //! pages, the table header repeats, the title lands in the outline.
 
 mod common;
 
-use hikari::{
-    now_unix, render_pdf_with, Attachment, Justify, License, Node, PageSize, PdfOptions, Style,
-};
+use hikari::{render_pdf_with, Attachment, Justify, Node, PageSize, PdfOptions, Style};
 
 fn row(cells: [&str; 4], header: bool) -> Node {
     let mut style = Style::grid(4).with_gap(8.0);
@@ -84,7 +82,6 @@ fn document() -> Node {
 }
 
 fn main() {
-    let lic = License::dev(now_unix());
     let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
 <invoice id="2026-091" currency="USD">
   <seller>Hikari Labs</seller>
@@ -101,7 +98,7 @@ fn main() {
             bytes: xml.as_bytes().to_vec(),
         }],
     };
-    let doc = render_pdf_with(&[document()], PageSize::A4, &options, &lic).expect("render");
+    let doc = render_pdf_with(&[document()], PageSize::A4, &options).expect("render");
     common::write("invoice.pdf", &doc);
     println!("wrote invoice.pdf ({} bytes)", doc.len());
 }

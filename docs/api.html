@@ -16,7 +16,7 @@
       <a class="nav__link" href="install.html" data-optional>Install</a>
       <a class="nav__link" href="api.html" data-optional aria-current="page">API</a>
       <a class="nav__link" href="benchmarks.html">Benchmarks</a>
-      <a class="nav__link" href="pricing.html" data-optional>Pricing</a>
+      <a class="nav__link" href="licence.html" data-optional>Licence</a>
       <a class="nav__link" href="playground.html">Playground</a>
     </nav>
   </div>
@@ -132,15 +132,16 @@ let (w, h) = measure_text(text, px, BUILTIN_FONT);</code></pre>
 
   <section class="section">
     <div class="page" style="max-width:860px">
-      <p class="eyebrow">Pro</p>
-      <h2>PDF and motion</h2>
+      <p class="eyebrow">Documents and motion</p>
+      <h2>PDF and animation</h2>
       <p class="prose" style="margin-top:var(--s-4)">
-        Both take a <code>&amp;License</code>. Keys are read from the
-        environment by the bindings; in Rust you construct one.
+        Both are free and take no key material. <code>render_pdf_with</code>
+        takes document options; the animation encoders take frames with
+        per-frame durations.
       </p>
       <div class="code-block" style="margin-top:var(--s-5)">
         <span class="code-block__label">rust</span>
-<pre><code>use hikari::{now_unix, render_pdf_with, Attachment, License, PageSize, PdfOptions};
+<pre><code>use hikari::{render_pdf_with, Attachment, PageSize, PdfOptions};
 
 let options = PdfOptions {
     title: Some("Invoice".into()),
@@ -152,14 +153,9 @@ let options = PdfOptions {
     ..PdfOptions::new()
 };
 
-let pdf = render_pdf_with(
-    &amp;[doc],
-    PageSize::A4,
-    &amp;options,
-    &amp;License::dev(now_unix()),
-)?;
+let pdf = render_pdf_with(&amp;[doc], PageSize::A4, &amp;options)?;
 
-let gif = render_animation_gif(&amp;[(frame_a, 500), (frame_b, 500)], 480, 240, &amp;lic)?;</code></pre>
+let gif = render_animation_gif(&amp;[(frame_a, 500), (frame_b, 500)], 480, 240)?;</code></pre>
       </div>
       <p class="prose" style="margin-top:var(--s-4)">
         A registered font id works in PDF too: fonts are embedded per document
@@ -176,7 +172,7 @@ let gif = render_animation_gif(&amp;[(frame_a, 500), (frame_b, 500)], 480, 240, 
       <a href="index.html">Home</a>
       <a href="install.html">Install</a>
       <a href="benchmarks.html">Benchmarks</a>
-      <a href="pricing.html">Pricing</a>
+      <a href="licence.html">Licence</a>
       <a href="playground.html">Playground</a>
       <a href="https://github.com/theoxfaber/hikari">GitHub</a>
     </nav>

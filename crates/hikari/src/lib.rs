@@ -17,7 +17,6 @@ pub use hikari_core::{
     ImgFit, Justify, Media, Node, Placed, PlacedAdvance, Style, BUILTIN_FONT,
 };
 pub use hikari_core::{BlendMode, Shadow, ShadowKind};
-pub use hikari_license::{Feature, License, LicenseError, Plan};
 pub use hikari_pdf::{
     render_pdf as render_pdf_pages, render_pdf_with as render_pdf_pages_with, Attachment, PageSize,
     PdfOptions,
@@ -104,16 +103,6 @@ pub fn render_animation_png(
         .collect()
 }
 
-/// Current unix time in seconds (license clock).
-#[must_use]
-pub fn now_unix() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
 /// Render frames in parallel to straight-alpha RGBA (one buffer per frame).
 pub fn render_animation_rgba(
     frames: &[(Node, u32)],
@@ -131,17 +120,9 @@ pub fn render_animation_rgba(
         .collect()
 }
 
-/// Render + encode an animated GIF (Pro: requires `Feature::Animate`).
+/// Render + encode an animated GIF.
 /// Frames are `(tree, duration_ms)`; output loops forever.
-pub fn render_animation_gif(
-    frames: &[(Node, u32)],
-    w: u32,
-    h: u32,
-    license: &License,
-) -> Result<Vec<u8>, Error> {
-    if !license.allows_at(Feature::Animate, now_unix()) {
-        return Err(Error::License(LicenseError::NotEntitled.to_string()));
-    }
+pub fn render_animation_gif(frames: &[(Node, u32)], w: u32, h: u32) -> Result<Vec<u8>, Error> {
     let raw = render_animation_rgba(frames, w, h)?;
     let anim: Vec<AnimFrame> = raw
         .into_iter()
@@ -150,17 +131,9 @@ pub fn render_animation_gif(
     encode_gif(&anim, w, h)
 }
 
-/// Render + encode an animated PNG (Pro: requires `Feature::Animate`).
+/// Render + encode an animated PNG.
 /// Frames are `(tree, duration_ms)`; output loops forever.
-pub fn render_animation_apng(
-    frames: &[(Node, u32)],
-    w: u32,
-    h: u32,
-    license: &License,
-) -> Result<Vec<u8>, Error> {
-    if !license.allows_at(Feature::Animate, now_unix()) {
-        return Err(Error::License(LicenseError::NotEntitled.to_string()));
-    }
+pub fn render_animation_apng(frames: &[(Node, u32)], w: u32, h: u32) -> Result<Vec<u8>, Error> {
     let raw = render_animation_rgba(frames, w, h)?;
     let anim: Vec<AnimFrame> = raw
         .into_iter()
@@ -169,23 +142,18 @@ pub fn render_animation_apng(
     encode_apng(&anim, w, h)
 }
 
-/// Render one [`Node`] per page to PDF bytes (Pro: requires `Feature::Pdf`).
+/// Render one [`Node`] per page to PDF bytes.
 /// Text stays selectable; images embed as Flate XObjects.
-pub fn render_pdf(pages: &[Node], size: PageSize, license: &License) -> Result<Vec<u8>, Error> {
-    render_pdf_with(pages, size, &PdfOptions::new(), license)
+pub fn render_pdf(pages: &[Node], size: PageSize) -> Result<Vec<u8>, Error> {
+    render_pdf_with(pages, size, &PdfOptions::new())
 }
 
-/// Render one [`Node`] per page to PDF bytes with document options
-/// (Pro: requires `Feature::Pdf`).
+/// Render one [`Node`] per page to PDF bytes with document options.
 pub fn render_pdf_with(
     pages: &[Node],
     size: PageSize,
     options: &PdfOptions,
-    license: &License,
 ) -> Result<Vec<u8>, Error> {
-    if !license.allows_at(Feature::Pdf, now_unix()) {
-        return Err(Error::License(LicenseError::NotEntitled.to_string()));
-    }
     render_pdf_pages_with(pages, size, options)
 }
 
@@ -222,23 +190,29 @@ mod tests {
     }
 
     #[test]
-    fn gif_renders_with_dev_license() {
+    fn gif_renders_without_any_license() {
         let mk = |t: &str| Node::banner(160.0, 80.0, "#101828", t, 32.0, "#ffffff");
         let frames = vec![(mk("one"), 400), (mk("two"), 400)];
-        let lic = License::dev(now_unix());
-        let gif = render_animation_gif(&frames, 160, 80, &lic).unwrap();
+        let gif = render_animation_gif(&frames, 160, 80).unwrap();
         assert_eq!(&gif[..6], b"GIF89a");
         assert_eq!(count_gif_frames(&gif).unwrap(), 2);
     }
 
     #[test]
+    fn apng_renders_without_any_license() {
+        let mk = |t: &str| Node::banner(160.0, 80.0, "#101828", t, 32.0, "#ffffff");
+        let frames = vec![(mk("one"), 400), (mk("two"), 400)];
+        let apng = render_animation_apng(&frames, 160, 80).unwrap();
+        assert_eq!(&apng[..8], &[137, 80, 78, 71, 13, 10, 26, 10]);
+        assert!(apng.windows(4).any(|w| w == b"acTL"));
+    }
+
+    #[test]
     fn pdf_renders_two_selectable_pages() {
         let mk = |t: &str| Node::banner(400.0, 600.0, "#ffffff", t, 36.0, "#111111");
-        let lic = License::dev(now_unix());
         let doc = render_pdf(
             &[mk("Invoice total $288"), mk("Terms apply")],
             PageSize::Custom { w: 400.0, h: 600.0 },
-            &lic,
         )
         .unwrap();
         assert_eq!(&doc[..5], b"%PDF-");
@@ -249,36 +223,21 @@ mod tests {
     }
 
     #[test]
-    fn pdf_denies_free_plan() {
-        let lic = License::dev(0); // long expired (dev keys live 24h)
-        let err = render_pdf(
-            &[Node::banner(10.0, 10.0, "#fff", "x", 8.0, "#000")],
-            PageSize::A4,
-            &lic,
-        )
-        .unwrap_err();
-        assert!(err.to_string().contains("license"), "{err}");
-    }
-
-    #[test]
-    fn apng_renders_with_dev_license() {
-        let mk = |t: &str| Node::banner(160.0, 80.0, "#101828", t, 32.0, "#ffffff");
-        let frames = vec![(mk("one"), 400), (mk("two"), 400)];
-        let lic = License::dev(now_unix());
-        let apng = render_animation_apng(&frames, 160, 80, &lic).unwrap();
-        assert_eq!(&apng[..8], &[137, 80, 78, 71, 13, 10, 26, 10]);
-        assert!(apng.windows(4).any(|w| w == b"acTL"));
-    }
-
-    #[test]
-    fn gif_denies_free_plan() {
-        use ed25519_dalek::SigningKey;
-        const SK: [u8; 32] = [9u8; 32];
-        let pk = SigningKey::from_bytes(&SK).verifying_key().to_bytes();
-        let key = License::mint(Plan::Free, 0, "free", &SK);
-        let lic = License::verify(&key, &pk, now_unix()).unwrap();
-        let frames = vec![(Node::banner(64.0, 32.0, "#111", "x", 16.0, "#fff"), 200)];
-        let err = render_animation_gif(&frames, 64, 32, &lic).unwrap_err();
-        assert!(err.to_string().contains("license"), "{err}");
+    fn every_backend_is_reachable_from_a_clean_process() {
+        // The point of dropping the licence gate, asserted end to end: with no
+        // key material anywhere, every backend renders. The old build needed
+        // `License::dev(now_unix())` threaded through each call, and the Node
+        // binding needed two environment variables set.
+        //
+        // A smoke floor rather than a deep check — the tests above cover the
+        // output — but it is the one that breaks first if a gate is ever
+        // reintroduced by accident.
+        let tree = Node::banner(120.0, 60.0, "#0b1020", "free", 24.0, "#ffffff");
+        assert!(render_png(&tree, 120, 60).is_ok());
+        assert!(render_svg(&tree, 120, 60).is_ok());
+        assert!(render_webp(&tree, 120, 60).is_ok());
+        assert!(render_animation_gif(&[(tree.clone(), 100)], 120, 60).is_ok());
+        assert!(render_animation_apng(&[(tree.clone(), 100)], 120, 60).is_ok());
+        assert!(render_pdf(&[tree], PageSize::A4).is_ok());
     }
 }

@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Licence — Hikari</title>
+<meta name="color-scheme" content="dark">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="nav" id="nav">
+  <div class="page nav__inner">
+    <a class="nav__brand" href="index.html"><span class="nav__mark" aria-hidden="true"></span> hikari</a>
+    <nav class="nav__links" aria-label="Primary">
+      <a class="nav__link" href="install.html" data-optional>Install</a>
+      <a class="nav__link" href="api.html" data-optional>API</a>
+      <a class="nav__link" href="benchmarks.html">Benchmarks</a>
+      <a class="nav__link" href="licence.html" aria-current="page">Licence</a>
+      <a class="nav__link" href="playground.html">Playground</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="section">
+    <div class="page" style="max-width:820px">
+      <p class="eyebrow">Licence</p>
+      <h1 style="font-size:var(--step-4)">Free, and staying free</h1>
+      <p class="lede" style="margin-top:var(--s-4)">
+        Hikari is MIT or Apache-2.0. Every backend — stills, animation and PDF —
+        is available with no key, no environment variable and no feature flag.
+        There is no paid tier.
+      </p>
+    </div>
+  </section>
+
+  <section class="section--tight">
+    <div class="page" style="max-width:820px">
+      <div class="figures">
+        <div class="figure">
+          <div class="figure__value">6</div>
+          <div class="figure__label">backends, all free</div>
+        </div>
+        <div class="figure">
+          <div class="figure__value">0</div>
+          <div class="figure__label">keys or environment variables</div>
+        </div>
+        <div class="figure">
+          <div class="figure__value">0</div>
+          <div class="figure__label">network calls at runtime</div>
+        </div>
+        <div class="figure">
+          <div class="figure__value">0</div>
+          <div class="figure__label">crates with paywalled features</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="page" style="max-width:820px">
+      <p class="eyebrow">What changed</p>
+      <h2>The Pro tier is gone</h2>
+      <div class="prose" style="margin-top:var(--s-5)">
+        <p>
+          Earlier versions gated PDF and animation behind an ed25519 key checked
+          offline. Every one of those features is now free and always was
+          technically — the gate was a commercial-terms mechanism, not a
+          technical one, so anyone could remove it in a fork.
+        </p>
+        <p>
+          Keeping it was the wrong call. An offline check in readable source is
+          not protection, and selling features behind it costs more credibility
+          than it earns revenue, especially for a project whose entire pitch is
+          that you can read all of it. The library is now MIT/Apache-2.0
+          throughout, with no commercial terms attached.
+        </p>
+        <p>
+          If you bought a Pro key: it is no longer needed, and will never be.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="page" style="max-width:820px">
+      <p class="eyebrow">Terms</p>
+      <h2>MIT and Apache-2.0</h2>
+      <div class="prose" style="margin-top:var(--s-5)">
+        <p>
+          Use it commercially, modify it, redistribute it, embed it in a
+          closed-source product. The only requirements are the licence text and
+          the notice. There is no clause about who you may sell it to, no seat
+          counting, and no render metering.
+        </p>
+        <p>
+          Full text is in <code>LICENSE-MIT</code> and <code>LICENSE-APACHE</code>
+          in the repository. Either one is sufficient.
+        </p>
+      </div>
+      <div class="callout" style="margin-top:var(--s-5)">
+        <p>
+          <strong>The embedded fonts are OFL-1.1</strong>, which is MIT-compatible
+          and permits embedding in a product, including a closed-source one. The
+          licence text ships beside each face in
+          <code>crates/hikari-core/assets/fonts/</code>.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="page" style="max-width:820px">
+      <p class="eyebrow">If something is missing</p>
+      <h2>Open an issue</h2>
+      <p class="prose" style="margin-top:var(--s-4)">
+        A rendering gap, a shaping bug, or a feature the node tree cannot express
+        yet: open an issue. There is no paid tier, so there is no paid-tier
+        support queue either — bugs are answered in the open, in commit order.
+      </p>
+      <div style="margin-top:var(--s-5)">
+        <a class="btn btn--primary" href="https://github.com/theoxfaber/hikari/issues">Open an issue</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="page footer__inner">
+    <p class="footer__note">Hikari — boring dependencies, published numbers, stated limitations.</p>
+    <nav class="footer__links" aria-label="Footer">
+      <a href="index.html">Home</a>
+      <a href="install.html">Install</a>
+      <a href="api.html">API</a>
+      <a href="benchmarks.html">Benchmarks</a>
+      <a href="licence.html">Licence</a>
+      <a href="playground.html">Playground</a>
+      <a href="https://github.com/theoxfaber/hikari">GitHub</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+  var nav = document.getElementById('nav');
+  var onScroll = function () { nav.dataset.stuck = String(window.scrollY > 8); };
+  onScroll();
+  window.addEventListener('scroll', onScroll, { passive: true });
+</script>
+
+</body>
+</html>

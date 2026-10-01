@@ -159,4 +159,26 @@ assert.ok(
   'WEBP marker'
 );
 
-console.log(`node OK: version=${hk.version()} png=${png.length}B svg=${svg.length} chars webp=${webp.length}B`);
+// PDF used to require HIKARI_LICENSE and HIKARI_PUBKEY, and this suite never
+// called it — it only checked that the function existed. So the licence path was
+// never covered by a test that could fail. Now PDF is free, so call it with the
+// environment explicitly cleared: a stray key in the developer's shell must not
+// be what makes this pass.
+for (const name of ['HIKARI_LICENSE', 'HIKARI_PUBKEY']) delete process.env[name];
+const pdf = hk.renderPdfSync(
+  JSON.stringify([
+    {
+      Container: {
+        style: { width: 400.0, height: 600.0, background: '#ffffff' },
+        children: [{ Text: { text: 'Free PDF', style: { font_size: 36 } } }],
+      },
+    },
+  ]),
+  400,
+  600,
+);
+assert.equal(pdf.subarray(0, 5).toString('latin1'), '%PDF-', 'PDF magic');
+
+console.log(
+  `node OK: version=${hk.version()} png=${png.length}B svg=${svg.length} chars webp=${webp.length}B pdf=${pdf.length}B`,
+);

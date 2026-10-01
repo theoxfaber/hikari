@@ -37,7 +37,6 @@
   --accent-dim: rgba(125, 211, 252, 0.14);
   --accent-line: rgba(125, 211, 252, 0.32);
 
-  --warn: #fbbf24;
   --bad: #f87171;
   --good: #6ee7b7;
 
@@ -72,7 +71,6 @@
      Three values, used consistently. Nothing is more rounded than a pill. */
   --r-control: 8px;
   --r-card: 12px;
-  --r-pill: 999px;
 
   /* --- Motion ------------------------------------------------------------
      Three speeds, so the page has rhythm: micro-feedback, state change, and
@@ -587,37 +585,6 @@ figcaption {
 }
 
 /* ==========================================================================
-   Badges
-   One shape, three intents. Nothing else in the system is a pill.
-   ========================================================================== */
-
-.badge {
-  display: inline-flex;
-  align-items: center;
-  height: 22px;
-  padding-inline: var(--s-2);
-  border-radius: var(--r-pill);
-  border: 1px solid var(--line-strong);
-  font-family: var(--mono);
-  font-size: 0.6875rem;
-  letter-spacing: 0.02em;
-  color: var(--text-dim);
-  white-space: nowrap;
-}
-
-.badge--accent {
-  border-color: var(--accent-line);
-  color: var(--accent);
-  background: var(--accent-dim);
-}
-
-.badge--pro {
-  border-color: rgba(251, 191, 36, 0.3);
-  color: var(--warn);
-  background: rgba(251, 191, 36, 0.08);
-}
-
-/* ==========================================================================
    Code
    ========================================================================== */
 
@@ -759,10 +726,6 @@ th.num {
 
 .callout strong {
   color: var(--text);
-}
-
-.callout--warn {
-  border-left-color: var(--warn);
 }
 
 /* ==========================================================================

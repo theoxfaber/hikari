@@ -1,8 +1,8 @@
-//! motion.rs target: 3-frame Pro GIF + APNG demo (dev license).
+//! motion.rs target: 3-frame animated GIF + APNG demo.
 
 mod common;
 
-use hikari::{now_unix, render_animation_apng, render_animation_gif, License, Node};
+use hikari::{render_animation_apng, render_animation_gif, Node};
 
 fn main() {
     let bgs = ["#0b1020", "#1e1b4b", "#082f22"];
@@ -23,11 +23,10 @@ fn main() {
             )
         })
         .collect();
-    let lic = License::dev(now_unix());
-    let gif = render_animation_gif(&frames, 480, 240, &lic).expect("render");
+    let gif = render_animation_gif(&frames, 480, 240).expect("render");
     common::write("motion.gif", &gif);
     println!("wrote motion.gif ({} bytes)", gif.len());
-    let apng = render_animation_apng(&frames, 480, 240, &lic).expect("render");
+    let apng = render_animation_apng(&frames, 480, 240).expect("render");
     common::write("motion.apng.png", &apng);
     println!("wrote motion.apng.png ({} bytes)", apng.len());
 }

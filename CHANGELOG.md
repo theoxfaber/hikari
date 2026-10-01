@@ -3,6 +3,39 @@
 All notable changes to Hikari. Versions match the workspace `version` and
 the `hikari-rs` facade crate.
 
+## v0.20.0 — everything free
+
+### Removed
+- **The licence gate.** `render_pdf`, `render_pdf_with`, `render_animation_gif`
+  and `render_animation_apng` no longer take a `&License`. The `hikari-license`
+  crate (`License`, `Feature`, `Plan`, `LicenseError`) is deleted, along with
+  `now_unix`, the `Error::License` variant, `HIKARI_LICENSE` and
+  `HIKARI_PUBKEY`. `LICENSE-COMMERCIAL.md` and `PRICING.md` are deleted.
+- `docs/pricing.html`, replaced by `docs/licence.html`.
+
+### Why
+The gate was an `ed25519` check in readable source, so it was a
+commercial-terms mechanism and not a technical one — anyone could delete it in a
+fork, and pretending otherwise cost more credibility than the £ it could earn.
+For a project whose pitch is that all of it is readable, that was the wrong
+trade. Everything is now MIT/Apache-2.0 with no terms attached.
+
+If you bought a Pro key: it is no longer needed and never will be.
+
+### Also in this release
+- **A shaped font fallback chain.** Runs are split by glyph coverage and each
+  segment is shaped with a face that has the glyph, so fallback text joins
+  instead of drawing isolated letters. A bundled OFL Hebrew face ships by
+  default; an opt-in `bundled-cjk` feature bundles one for CJK.
+- **A golden image corpus** of 20 cases, one per capability, diffed in CI.
+- **Blend modes** (15) and **inset shadow kinds**.
+- **Three rendering bugs fixed**, all found by the new tests: a radial gradient
+  that shipped as a flat fill because its radius was read as pixels; blend modes
+  that were silent no-ops for solid fills; inset shadows painted beneath their
+  own background. See BENCHMARKS.md for the corrections log.
+
+---
+
 ## v0.19.0 — caller-supplied fonts
 
 ### Added
