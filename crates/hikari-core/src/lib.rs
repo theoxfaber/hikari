@@ -15,11 +15,15 @@ pub use font::{
     BUILTIN_FONT,
 };
 
+/// A CSS subset parser and an HTML-ish front end.
+pub mod css;
+
+// Both modules below contain only `#[test]` items, so compiling them in a
+// non-test build strips every function and leaves only the helpers and imports
+// behind, which then read as dead code. Gating the module is the honest fix;
+// gating the individual items just moves the same warning down the file.
 #[cfg(test)]
-// Both modules contain only `#[test]` items, so compiling them in a non-test
-// build strips every function and leaves only the helpers and imports behind,
-// which then read as dead code. Gating the module is the honest fix; gating the
-// individual items just moves the same warning down the file.
+mod css_tests;
 #[cfg(test)]
 mod font_chain_tests;
 #[cfg(test)]

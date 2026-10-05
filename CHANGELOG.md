@@ -3,6 +3,62 @@
 All notable changes to Hikari. Versions match the workspace `version` and
 the `hikari-rs` facade crate.
 
+## v0.21.0 — CSS and HTML front end
+
+### Added
+- **`hikari::css`.** `html_to_tree` parses markup with an inline `<style>`
+  block into a node tree; `Stylesheet` + `from_elements` do the same for a
+  stylesheet and a declarative `Element` tree. A card no longer has to be
+  hand-built as a `Node`.
+- Supported CSS: box model, `display`, `flex-direction`, `justify-content`,
+  `align-items`, `gap`, colours in every common form (`#rgb`/`#rgba`/
+  `#rrggbb`/`#rrggbbaa`, `rgb()`, `rgba()` including the modern
+  `rgb(1 2 3 / 50%)` form, and ~50 named colours), linear and radial
+  gradients with degree/`grad`/`rad`/`turn` and `to <side>` forms,
+  `box-shadow` including `inset`, `mix-blend-mode`, `background-clip: text`,
+  position/left/top, `aspect-ratio`, `grid-template-columns: repeat(n, 1fr)`,
+  and text properties with CSS inheritance.
+- `ParseReport` lists every declaration that was skipped and why. Unsupported
+  CSS is **never guessed**: `width:50` is rejected rather than read as 50px,
+  because a plausible wrong value is worse than an absent one.
+
+### Why not `lightningcss`
+Measured, not assumed. It is a much better parser, but it pulls
+`dashmap` → `ahash` → `getrandom` 0.3.4, and that version is a hard
+`compile_error!` on `wasm32-unknown-unknown` unless both a `--cfg` and a feature
+flag are set — neither reachable through its dependency graph. Adding it breaks
+the WebAssembly build outright. Its default features also carry a bundler this
+project has no use for. The replacement is ordinary Rust with no new
+dependencies, which keeps the "boring dependencies" claim honest.
+
+### Fixed
+- **A `Node::Text` tree root rendered nothing.** Not a CSS bug: the layout
+  produced a correct 306x90 box for a root text node and the painter emitted
+  zero ink. Found while testing the CSS front end, and left fixed because it is
+  a real bug for anyone passing a bare `Node::text(...)` to `render_png`.
+- **CSS text inheritance.** `font-size` and `color` were applied to the
+  containing box rather than the glyphs, so `<span class="t">Hello</span>`
+  rendered at the default size. A boxless element now collapses into a text
+  node; one with a box of its own keeps it.
+- **Six parser bugs found by the parser's own tests**, each of which looked like
+  working code: declaration values were concatenated with no separator, so every
+  gradient failed to parse; the closing brace of a rule was consumed twice,
+  which silently discarded every rule after the first; `to right` collapsed to
+  `toright`; `a:hover` was reported as `a: hover`; `rgb()` discarded its alpha;
+  and gradient stops split on spaces rather than commas.
+
+### Tests
+36 new: 29 unit tests asserting on decoded style values, and 7 end-to-end tests
+that render and count ink. The headline one renders the same card from CSS and
+by hand and asserts the bytes are **identical** — if they ever diverge, the CSS
+layer has become a second renderer rather than a convenience. The corpus grew to
+21 cases with a `css-html-card` digest, so a parser regression is gated in CI.
+
+160 tests pass, clippy clean, fmt clean, the determinism card and all 21 corpus
+digests unchanged except the one new case.
+
+---
+
 ## v0.20.0 — everything free
 
 ### Removed

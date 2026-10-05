@@ -399,6 +399,24 @@ fn cases() -> Vec<(&'static str, Node, u32, u32, usize)> {
             25_000,
         ),
         (
+            "css-html-card",
+            {
+                let mut report = hikari::css::ParseReport::default();
+                hikari::css::html_to_tree(
+                    r#"<div style="width:1200px;height:630px;background:linear-gradient(180deg,#dbeafe,#fee2e2)">
+                          <span style="font-size:84px;color:#0f172a">CSS card</span>
+                       </div>"#,
+                    &mut report,
+                )
+                .expect("css parses")
+            },
+            1200,
+            630,
+            // A gradient covers every pixel and the text covers a few thousand
+            // more, so nearly the whole frame is content.
+            700_000,
+        ),
+        (
             "shadow-inset-edge",
             Node::container(
                 Style::centered()

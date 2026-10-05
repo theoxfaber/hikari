@@ -403,6 +403,41 @@ fn cases() -> Vec<Case> {
             ),
         ),
         Case::new(
+            "css-html-card",
+            "the CSS/HTML front end rendering the same card",
+            1200,
+            630,
+            // Built through the parser rather than by hand, so a regression in
+            // tokenizing, selector matching, cascade or text inheritance moves
+            // this digest. The values mirror `css-card` above deliberately: the
+            // two must stay visually comparable.
+            {
+                let mut report = hikari::css::ParseReport::default();
+                let tree = hikari::css::html_to_tree(
+                    r#"
+                    <style>
+                      .card { display: flex; flex-direction: column; justify-content: center;
+                              width: 1200px; height: 630px; padding: 80px; gap: 12px;
+                              background: linear-gradient(180deg, #dbeafe, #fee2e2); }
+                      .title { font-size: 84px; color: #0f172a; }
+                      .sub   { font-size: 30px; color: #475569; }
+                    </style>
+                    <div class="card">
+                      <span class="title">CSS card</span>
+                      <span class="sub">same engine, parsed</span>
+                    </div>
+                    "#,
+                    &mut report,
+                )
+                .expect("css parses");
+                assert!(
+                    report.is_clean(),
+                    "the corpus case must parse without skips: {report}"
+                );
+                tree
+            },
+        ),
+        Case::new(
             "shadow-inset-edge",
             "the hard-edged inset variant ignoring any blur radius",
             300,

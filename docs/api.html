@@ -163,6 +163,55 @@ let gif = render_animation_gif(&amp;[(frame_a, 500), (frame_b, 500)], 480, 240)?
       </p>
     </div>
   </section>
+  <section class="section">
+    <div class="page" style="max-width:860px">
+      <p class="eyebrow">Front end</p>
+      <h2>Write it in HTML and CSS</h2>
+      <p class="prose" style="margin-top:var(--s-4)">
+        A card does not have to be a hand-built node tree.
+        <code>html_to_tree</code> takes markup with an inline
+        <code>&lt;style&gt;</code> block and returns a tree.
+        <code>Stylesheet</code> plus <code>from_elements</code> takes a
+        stylesheet and a declarative element tree instead, for callers who would
+        rather build elements than write markup.
+      </p>
+      <div class="code-block" style="margin-top:var(--s-5)">
+        <span class="code-block__label">rust</span>
+<pre><code>use hikari::css::{self, ParseReport};
+
+let html = r#"
+&lt;style&gt;
+  .card { display: flex; flex-direction: column; justify-content: center;
+          width: 1200px; height: 630px; padding: 80px;
+          background: linear-gradient(180deg, #dbeafe, #fee2e2); }
+  .title { font-size: 84px; color: #0f172a; }
+&lt;/style&gt;
+&lt;div class="card"&gt;&lt;span class="title"&gt;Hikari&lt;/span&gt;&lt;/div&gt;
+"#;
+
+let mut report = ParseReport::default();
+let tree = css::html_to_tree(html, &amp;mut report)?;
+
+// Anything the subset does not implement is listed here rather than guessed,
+// so a dropped declaration can never quietly render as the wrong thing.
+println!("{report}");
+let png = hikari::render_png(&amp;tree, 1200, 630)?;</code></pre>
+      </div>
+      <div class="callout" style="margin-top:var(--s-5)">
+        <p>
+          <strong>This is a subset, and it says so.</strong> Supported:
+          box model, <code>display</code>, <code>flex-direction</code>,
+          <code>justify-content</code>, <code>align-items</code>, gradients,
+          colours in every common form, <code>box-shadow</code>, blend modes,
+          <code>background-clip: text</code>, and text properties with CSS
+          inheritance. Not supported: <code>@media</code>, custom properties,
+          <code>calc()</code>, <code>transform</code>, <code>z-index</code>,
+          masks and filters. Cascade is source order — documented rather than
+          half-implemented.
+        </p>
+      </div>
+    </div>
+  </section>
 </main>
 
 <footer class="footer">

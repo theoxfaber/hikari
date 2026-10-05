@@ -9,6 +9,7 @@
 //! ```
 
 pub use hikari_animate::{count_gif_frames, encode_apng, encode_gif, AnimFrame};
+pub use hikari_core::css;
 pub use hikari_core::{
     balance_text, builtin_bytes, compute_layout, fit_font_size, font_bytes, font_entry,
     gradient_line, hash_bytes, hash_node, image_dimensions, line_height, measure_text, paginate,
@@ -16,6 +17,7 @@ pub use hikari_core::{
     Background, Color, ColorStop, Display, Error, FlexDir, Flow, FontEntry, FontId, HashCache,
     ImgFit, Justify, Media, Node, Placed, PlacedAdvance, Style, BUILTIN_FONT,
 };
+
 pub use hikari_core::{BlendMode, Shadow, ShadowKind};
 pub use hikari_pdf::{
     render_pdf as render_pdf_pages, render_pdf_with as render_pdf_pages_with, Attachment, PageSize,

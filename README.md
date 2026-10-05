@@ -12,6 +12,31 @@ let tree = Node::container(
 std::fs::write("og.png", render_png(&tree, 1200, 630)?)?;
 ```
 
+A card can be written as markup and CSS instead of a hand-built tree:
+
+```rust
+let html = r#"
+<style>
+  .card { display: flex; flex-direction: column; justify-content: center;
+          width: 1200px; height: 630px; padding: 80px;
+          background: linear-gradient(180deg, #dbeafe, #fee2e2); }
+  .title { font-size: 84px; color: #0f172a; }
+</style>
+<div class="card"><span class="title">Hikari</span></div>
+"#;
+let tree = hikari::css::html_to_tree(html, &mut hikari::css::ParseReport::default())?;
+std::fs::write("og.png", hikari::render_png(&tree, 1200, 630)?)?;
+```
+
+Unsupported CSS is reported rather than guessed, so a declaration this subset
+does not implement can never quietly render as the wrong thing:
+
+```rust
+let mut report = hikari::css::ParseReport::default();
+let tree = hikari::css::html_to_tree(html, &mut report)?;
+println!("{report}");   // lists every declaration it skipped, and why
+```
+
 One API produces PNG, SVG, animated GIF/APNG, lossless WebP, and PDF with
 selectable text. Text is shaped with real OpenType layout tables, so kerning,
 ligatures and Arabic joining work. Output is byte-identical across platforms
@@ -473,13 +498,24 @@ Ordered by what most limits the project, not by what is easiest.
       a node's border, background, image, text *and* shadow, plus `InsetTop` and
       `InsetEdge` shadows built by silhouette subtraction rather than as a dark
       overlay. `Normal` is byte-identical to the pre-blend-mode path, verified
-      against the determinism card and all 20 corpus digests. Masks and filters
+      against the determinism card and every corpus digest. Masks and filters
       remain open.
-- [x] **Golden-image corpus** — 16 cases, one per capability, in
+- [x] **Golden-image corpus** — 21 cases, one per capability, in
       `crates/hikari/tests/corpus.sha256`, diffed in CI, plus an ink assertion
       per case so a blank render cannot be blessed. Found a radial gradient that
       shipped as a flat fill because its radius was read as pixels.
-- [ ] **`lightningcss` style parsing** and a remote-asset preload helper.
+- [x] **A CSS and HTML front end**, so a card no longer has to be hand-built as
+      a node tree. `css::html_to_tree` takes markup with an inline `<style>`
+      block; `css::Stylesheet` plus `css::from_elements` takes a stylesheet and a
+      declarative element tree for callers who would rather build elements than
+      write markup. Unsupported declarations are **reported, never guessed**, so
+      `width:50` is skipped rather than read as 50px. Cascade is source order,
+      documented rather than half-implemented. `lightningcss` was measured and
+      rejected: it reaches `getrandom` 0.3.4, which is a hard `compile_error!` on
+      `wasm32-unknown-unknown`, so it breaks the WebAssembly build outright.
+- [ ] **A remote-asset preload helper.** Fetching images is a network call, and
+      this library makes none, so this has to be opt-in and explicit rather than
+      something a render triggers on its own.
 - [ ] **Criterion regression gates.** CI currently smoke-runs benchmarks;
       shared runners are too noisy to assert on timings, so this needs a
       dedicated runner.

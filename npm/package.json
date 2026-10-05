@@ -1,6 +1,6 @@
 {
   "name": "@hikari-rs/node",
-  "version": "0.20.0",
+  "version": "0.21.0",
   "description": "Render OG images, SVG, animations and PDFs from layout trees in pure Rust. No browser.",
   "keywords": [
     "og-image",
