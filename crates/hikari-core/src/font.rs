@@ -25,18 +25,20 @@
 //!
 //! # Why the bytes are leaked
 //!
-//! `rustybuzz::Face` and `ttf_parser::Face` both borrow the font data they
-//! parse, and the parse result is what we want to keep. Rather than rebuild
-//! self-referential structs on every call, each font is parsed once and its
-//! bytes are leaked. That also means [`font_entry`] can hand out `&'static`
-//! references, so the shaping hot path takes no lock at all.
+//! `harfrust`'s font model borrows the data it parses, and the parsed tables are
+//! exactly what we want to keep — re-reading them per shape would cost far more
+//! than the shaping itself. So each font is parsed once and its bytes are leaked
+//! to `&'static [u8]`. `harfrust::Font::new` accepts a `&'static [u8]` directly
+//! (`read-fonts` stores it as a borrowed `Blob` rather than copying), and
+//! [`font_entry`] hands out `&'static` references, so the shaping hot path takes
+//! no lock and performs no allocation.
 
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
 
-use rustybuzz::Face as HbFace;
+use harfrust::Font as HbFont;
+use read_fonts::TableProvider;
 use sha2::{Digest, Sha256};
-use ttf_parser::Face as TtfFace;
 
 use crate::error::Error;
 
@@ -51,8 +53,8 @@ pub struct FontEntry {
     /// Caller-supplied name, used for PDF and SVG output. Not used for lookup.
     pub name: String,
     bytes: &'static [u8],
-    hb: HbFace<'static>,
-    ttf: TtfFace<'static>,
+    /// The parsed font: metrics, cmap, layout and outline tables.
+    hb: HbFont,
 }
 
 impl FontEntry {
@@ -62,22 +64,34 @@ impl FontEntry {
         self.bytes
     }
 
-    /// `rustybuzz` face for shaping.
+    /// The parsed font, for metrics and table lookups.
     #[must_use]
-    pub fn hb(&self) -> &HbFace<'static> {
+    pub fn hb(&self) -> &HbFont {
         &self.hb
     }
 
-    /// `ttf-parser` face for metrics and codepoint lookup.
+    /// The glyph a character maps to directly, or `None` if this font does not
+    /// cover it.
+    ///
+    /// This is deliberately the *cmap* answer and not the shaper's: it answers
+    /// "does this face have the character at all", which is what the fallback
+    /// chain asks. Asking the shaper instead would be circular, since the chain
+    /// picks the font before shaping happens.
     #[must_use]
-    pub fn ttf(&self) -> &TtfFace<'static> {
-        &self.ttf
+    pub fn glyph_index(&self, ch: char) -> Option<u16> {
+        self.hb
+            .charmap()
+            .map_unicode(ch)
+            .map(|gid| gid.to_u32() as u16)
     }
 
     /// Design units per em. Zero would make every px size meaningless.
     #[must_use]
     pub fn units_per_em(&self) -> u16 {
-        self.ttf.units_per_em()
+        self.hb
+            .tables()
+            .head()
+            .map_or(1, |head| head.units_per_em())
     }
 }
 
@@ -90,11 +104,11 @@ struct Registry {
 }
 
 fn make_entry(name: &str, bytes: &'static [u8]) -> &'static FontEntry {
+    let hb = HbFont::new(bytes, 0).expect("bundled font parses");
     let entry = FontEntry {
         name: name.to_owned(),
         bytes,
-        hb: HbFace::from_slice(bytes, 0).expect("bundled font parses"),
-        ttf: TtfFace::parse(bytes, 0).expect("bundled font parses"),
+        hb,
     };
     Box::leak(Box::new(entry))
 }
@@ -151,6 +165,20 @@ pub fn font_entry(id: FontId) -> Option<&'static FontEntry> {
     reg.entries.get(id as usize).copied()
 }
 
+/// Design units per em for a font id, with the same bad-id fallback as
+/// [`hb_face`] so a forgotten registration cannot divide by zero downstream.
+#[must_use]
+pub fn units_per_em_of(id: FontId) -> u16 {
+    font_entry(id).map_or_else(
+        || {
+            font_entry(BUILTIN_FONT)
+                .expect("builtin registered")
+                .units_per_em()
+        },
+        FontEntry::units_per_em,
+    )
+}
+
 /// Number of distinct fonts registered, including the embedded one. Exposed so
 /// a caller registering unbounded distinct fonts can notice.
 #[must_use]
@@ -178,15 +206,19 @@ pub fn register_font(name: &str, bytes: &[u8]) -> Result<FontId, Error> {
         return Ok(id);
     }
 
-    // Leak the bytes first, then parse the faces *from the leaked slice*. Doing
-    // it the other way round leaves the faces borrowing the caller's buffer
-    // with the caller's lifetime, which cannot be stored in a `FontEntry`.
+    // Leak the bytes first, then parse the font *from the leaked slice*. Doing it
+    // the other way round leaves it borrowing the caller's buffer with the
+    // caller's lifetime, which cannot be stored in a `FontEntry`. The leak is
+    // also free: `read-fonts` stores a `&'static [u8]` as a borrowed `Blob`
+    // rather than copying it, so registration does not duplicate the font.
     let bytes: &'static [u8] = Box::leak(bytes.to_vec().into_boxed_slice());
-    let hb = HbFace::from_slice(bytes, 0)
-        .ok_or_else(|| Error::Font(format!("{name}: not a usable font")))?;
-    let ttf = TtfFace::parse(bytes, 0)
-        .map_err(|e| Error::Font(format!("{name}: not a usable font: {e:?}")))?;
-    if ttf.units_per_em() == 0 {
+    let hb =
+        HbFont::new(bytes, 0).ok_or_else(|| Error::Font(format!("{name}: not a usable font")))?;
+    // A zero upem would make every px size meaningless, and it is reachable in a
+    // hand-crafted file, so it is rejected at the door rather than dividing by it
+    // later.
+    let units_per_em = hb.tables().head().map_or(0, |head| head.units_per_em());
+    if units_per_em == 0 {
         return Err(Error::Font(format!("{name}: units_per_em is zero")));
     }
 
@@ -194,7 +226,6 @@ pub fn register_font(name: &str, bytes: &[u8]) -> Result<FontId, Error> {
         name: name.to_owned(),
         bytes,
         hb,
-        ttf,
     };
     let id = reg.entries.len() as FontId;
     let leaked_entry: &'static FontEntry = Box::leak(Box::new(entry));
@@ -227,7 +258,7 @@ pub fn resolve(id: FontId) -> FontId {
 /// rare and the shaper's own `missing` flag still catches it.
 #[must_use]
 pub fn font_covers(font: FontId, ch: char) -> bool {
-    font_entry(resolve(font)).is_some_and(|e| e.ttf.glyph_index(ch).is_some())
+    font_entry(resolve(font)).is_some_and(|e| e.glyph_index(ch).is_some())
 }
 
 /// The first bundled fallback covering `ch`, or `None` if none does.
@@ -245,16 +276,63 @@ pub fn font_covering(ch: char) -> Option<FontId> {
     reg.fallbacks
         .iter()
         .copied()
-        .find(|&id| font_entry(id).is_some_and(|e| e.ttf.glyph_index(ch).is_some()))
+        .find(|&id| font_entry(id).is_some_and(|e| e.glyph_index(ch).is_some()))
 }
 
-/// Resolve a font id to a face, falling back to the embedded font.
+/// A cached [`harfrust::ShaperFont`] for one font, per thread.
+///
+/// `ShaperFont::new` re-resolves the layout tables the shaper needs, which is
+/// real work and showed up as a ~16% regression on the render benchmark when it
+/// ran once per shaped run. The result cannot live in the registry: it holds
+/// interior `OnceCell`s and a `&dyn FontFuncs`, so it is neither `Sync` nor
+/// meaningful across calls -- the memoisation it keeps is only useful within one
+/// shaping run.
+///
+/// A thread-local keyed by font id gives each thread one shaper per font, which
+/// is exactly its lifetime: shaping happens on one thread for the duration of a
+/// call, and the cache is dropped with the thread. Fonts are registered into
+/// append-only slots that are never removed, so an id stays valid for the life
+/// of the process and the cache needs no invalidation.
+///
+/// The cost of a miss is one `ShaperFont::new`, so a thread that renders only
+/// once per font pays the same as before and keeps a little memory.
+pub(crate) fn shaper_for(id: FontId) -> &'static harfrust::ShaperFont<'static, 'static> {
+    use std::cell::RefCell;
+
+    // One shaper per (thread, font). A small vec rather than a map: a render
+    // touches a handful of fonts, and linear scan over two or three entries is
+    // cheaper than hashing.
+    thread_local! {
+        static SHAPERS: RefCell<Vec<(FontId, &'static harfrust::ShaperFont<'static, 'static>)>> =
+            const { RefCell::new(Vec::new()) };
+    }
+
+    SHAPERS.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some((_, shaper)) = cache.iter().find(|(cached, _)| *cached == id) {
+            return *shaper;
+        }
+        let shaper: &'static harfrust::ShaperFont<'static, 'static> =
+            Box::leak(Box::new(harfrust::ShaperFont::new(hb_face(id))));
+        cache.push((id, shaper));
+        shaper
+    })
+}
+
+/// Resolve a font id to a parsed font, falling back to the embedded one.
+///
+/// [`harfrust::ShaperFont`] is deliberately *not* cached here. It holds interior
+/// memoisation (`OnceCell`s for glyph metrics and a symbol-font page) that is
+/// neither `Sync` nor useful across calls: it caches within a single shaping
+/// run, where GSUB and GPOS lookups repeat heavily. Building it per call is
+/// therefore free — it reads tables this has already parsed — and keeping it out
+/// of the registry is what lets the registry stay `Sync`.
 ///
 /// A bad id degrades to the built-in font rather than failing the render: a
 /// tree that names a font the caller forgot to register should still produce
 /// an image, just not in the requested typeface.
 #[must_use]
-pub fn hb_face(id: FontId) -> &'static HbFace<'static> {
+pub fn hb_face(id: FontId) -> &'static HbFont {
     font_entry(id).map_or_else(
         || font_entry(BUILTIN_FONT).expect("builtin registered").hb(),
         FontEntry::hb,
@@ -319,13 +397,15 @@ mod tests {
         // stored.
         let id = register_font("embedded-again", builtin_bytes()).expect("register");
         let entry = font_entry(id).expect("entry");
-        let mut buffer = rustybuzz::UnicodeBuffer::new();
+        let mut buffer = harfrust::Buffer::new();
         buffer.push_str("Hello");
         buffer.guess_segment_properties();
-        let out = rustybuzz::shape(entry.hb(), &[], buffer);
-        assert!(!out.is_empty(), "registered font produced no glyphs");
+        let shaper = harfrust::ShaperFont::new(entry.hb());
+        harfrust::shape(&shaper, &mut buffer, harfrust::ShapeOptions::default())
+            .expect("shape succeeds");
+        assert!(!buffer.is_empty(), "registered font produced no glyphs");
         assert!(
-            out.glyph_positions().iter().any(|p| p.x_advance > 0),
+            buffer.glyph_positions().iter().any(|p| p.x_advance > 0),
             "registered font produced no advances"
         );
     }

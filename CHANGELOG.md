@@ -3,6 +3,75 @@
 All notable changes to Hikari. Versions match the workspace `version` and
 the `hikari-rs` facade crate.
 
+## v0.21.1 — shaper moved off rustybuzz onto harfrust
+
+### Changed
+- **`rustybuzz` → `harfrust` for all shaping.** `rustybuzz` is declared
+  unmaintained (RUSTSEC-2026-0206) and sat in the most critical path in the
+  project. That advisory is now gone from the dependency tree.
+- Shaping now goes through `harfrust`, the HarfBuzz project's own maintained
+  fork. It began as a fork of `rustybuzz` and swapped `ttf-parser` for
+  `read-fonts`, which is why the two produce identical output for the same font
+  while depending on maintained code.
+- `ttf-parser` no longer reaches the shaping or coverage path. The cmap lookup
+  moved to `read-fonts`, with a test sweeping the whole BMP to confirm it agrees
+  with `ttf-parser` on every character except U+FFFF.
+
+### Fixed
+- **Script properties are now set explicitly before shaping.** The buffer was
+  being given a `Direction` but never a `Script`, so the shaper picked a script
+  set itself. `rustybuzz` happened to choose the Latin one, which gave correct
+  ligatures and kerning; `harfrust` chooses differently, and with only a
+  direction set it dropped `ffi` into three separate letters and lost kerning
+  (a measured 390.9px → 424.8px on a kerning sample). Segment properties are now
+  guessed first and only the direction overridden, which is both correct and
+  independent of which shaper is underneath.
+
+  This was a latent bug, not a migration artifact: the old code was relying on a
+  shaper's guess rather than stating what it meant.
+
+  Known limit: the script is inferred from a run's first strong character, and
+  bidi runs are not guaranteed script-homogeneous, so a run mixing Latin into RTL
+  text shapes under one script. Splitting runs by script as well as direction is
+  the fix and needs script data this crate does not carry.
+
+### Performance
+- `harfrust::ShaperFont::new` re-resolves the shaper's layout tables, which cost
+  **16% of the render benchmark** when constructed per shaped run (4.38ms →
+  5.10ms on the 1200x630 banner). The shaper is now cached per thread per font.
+  The cache cannot live in the registry — `ShaperFont` holds interior `OnceCell`s
+  and a `&dyn FontFuncs`, so it is neither `Sync` nor meaningful across calls —
+  and a thread-local is exactly its natural lifetime.
+
+  Net effect: **4.06ms against a 4.38ms pre-migration baseline**, so the
+  migration is slightly faster than what it replaced.
+
+### Tests
+- 7 new tests in `shaping_path_tests`, all going through `shape_text` — the
+  entry point the renderer actually calls. This distinction is the point: the
+  pre-existing Arabic joining test shaped with `guess_segment_properties`
+  instead, a different path from production, which is why Arabic joining was
+  never verified at all. Arabic joining, Latin ligatures, and a Hebrew control
+  case are now checked against per-character shaping of the same text, which
+  removes context by construction rather than by asking the shaper to disable
+  features (an empty feature slice *adds* nothing, so that reference silently
+  returned the joined answer and made the first version of the test vacuous).
+
+- 167 tests pass, clippy clean, fmt clean. The determinism card and all 21
+  corpus digests are **unchanged** — the migration is byte-identical in output,
+  which is the strongest evidence available that `harfrust` and `rustybuzz`
+  agree on this corpus.
+
+### Still open
+- **RUSTSEC-2026-0192 (`ttf-parser`) remains**, now reached only through
+  `hikari-pdf` and `fontdue`, the glyph rasterizer. It cannot be cleared until
+  `fontdue` is replaced. Ignored in `deny.toml` with that reason written down.
+- WASM grew 2.95 MB → 3.29 MB, measured unoptimised. The trade is a maintained
+  shaper for the size; `wasm-opt` should recover some. No size budget is
+  enforced in CI, so the figure can drift unnoticed.
+
+---
+
 ## v0.21.0 — CSS and HTML front end
 
 ### Added

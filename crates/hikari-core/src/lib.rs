@@ -28,6 +28,8 @@ mod css_tests;
 mod font_chain_tests;
 #[cfg(test)]
 mod font_subset_tests;
+#[cfg(test)]
+mod shaping_path_tests;
 
 pub use cache::{hash_bytes, hash_node, HashCache};
 pub use error::Error;

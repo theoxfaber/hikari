@@ -29,7 +29,8 @@ serde_json.workspace = true
 sha2.workspace = true
 hex.workspace = true
 thiserror.workspace = true
-rustybuzz.workspace = true
+harfrust.workspace = true
+read-fonts = "0.45"
 unicode-bidi.workspace = true
 ttf-parser = { version = "0.21" }
 image.workspace = true

@@ -11,15 +11,47 @@ use super::shape::font_bytes;
 
 const SOURCE: &[u8] = include_bytes!("../assets/DejaVuSans.ttf");
 
-/// Shape `text` with `rustybuzz` and return (glyph count, total advance).
-fn shape(bytes: &[u8], text: &str) -> (usize, i32) {
-    let face = rustybuzz::Face::from_slice(bytes, 0).expect("font loads");
-    let mut buffer = rustybuzz::UnicodeBuffer::new();
+/// The `'static` requirement on the helpers below is not incidental:
+/// `read-fonts` stores borrowed font data as a `Blob::Static` slice, so a font
+/// parsed from a non-`'static` slice has no `From` impl and cannot be built at
+/// all. Production gets this for free because the registry leaks font bytes once
+/// at registration; the tests below are handed `include_bytes!` output and the
+/// embedded subset, which are already `'static`.
+///
+/// One shaped glyph: its id and the byte offset it came from.
+type Shaped = (u16, u32);
+
+/// Shape `text` and return `(glyph count, total advance, glyphs)`.
+///
+/// One helper for all three, because the buffer is owned by the shaper and
+/// cannot outlive it: `harfrust::shape` fills a caller-held `&mut Buffer`
+/// rather than returning one. Building the buffer inside a function that also
+/// reports from it is the only way to read it back out.
+///
+/// The cluster is carried alongside the glyph id because these tests map a glyph
+/// back to the source character that produced it, which a ligature or a
+/// contextual form has no other way to do.
+fn shape_glyphs(bytes: &'static [u8], text: &str) -> (usize, i32, Vec<Shaped>) {
+    let font = harfrust::Font::new(bytes, 0).expect("font loads");
+    let shaper = harfrust::ShaperFont::new(&font);
+    let mut buffer = harfrust::Buffer::new();
     buffer.push_str(text);
     buffer.guess_segment_properties();
-    let out = rustybuzz::shape(&face, &[], buffer);
-    let width = out.glyph_positions().iter().map(|p| p.x_advance).sum();
-    (out.len(), width)
+    harfrust::shape(&shaper, &mut buffer, harfrust::ShapeOptions::default())
+        .expect("shaping succeeds");
+    let width = buffer.glyph_positions().iter().map(|p| p.x_advance).sum();
+    let glyphs = buffer
+        .glyph_infos()
+        .iter()
+        .map(|g| (g.glyph_id as u16, g.cluster))
+        .collect();
+    (buffer.len(), width, glyphs)
+}
+
+/// Shape `text` and return (glyph count, total advance).
+fn shape(bytes: &'static [u8], text: &str) -> (usize, i32) {
+    let (count, width, _) = shape_glyphs(bytes, text);
+    (count, width)
 }
 
 /// Reverse a glyph id back to a codepoint by scanning the covered ranges.
@@ -95,15 +127,8 @@ fn arabic_letters_join() {
     // Arabic Presentation Forms blocks, which only a substitution can produce.
     let text = "\u{0645}\u{062D}\u{0628}\u{0627}"; // محبا
     let bytes = font_bytes();
-    let face = rustybuzz::Face::from_slice(bytes, 0).expect("font loads");
-    let mut buffer = rustybuzz::UnicodeBuffer::new();
-    buffer.push_str(text);
-    buffer.guess_segment_properties();
-    let gids: Vec<u16> = rustybuzz::shape(&face, &[], buffer)
-        .glyph_infos()
-        .iter()
-        .map(|g| g.glyph_id as u16)
-        .collect();
+    let (_, _, glyphs) = shape_glyphs(bytes, text);
+    let gids: Vec<u16> = glyphs.iter().map(|(gid, _)| *gid).collect();
 
     let joined = gids
         .iter()
@@ -203,7 +228,6 @@ fn shaped_glyphs_always_have_outlines() {
 
     let bytes = font_bytes();
     let ttf = ttf_parser::Face::parse(bytes, 0).expect("subset parses");
-    let face = rustybuzz::Face::from_slice(bytes, 0).expect("font loads");
 
     let samples = [
         "office waffle flag affix",                 // fi/fl/ffi/f-l ligatures
@@ -216,30 +240,25 @@ fn shaped_glyphs_always_have_outlines() {
     ];
 
     for text in samples {
-        let mut buffer = rustybuzz::UnicodeBuffer::new();
-        buffer.push_str(text);
-        buffer.guess_segment_properties();
         let chars: Vec<char> = text.chars().collect();
-        for info in rustybuzz::shape(&face, &[], buffer).glyph_infos() {
+        for (gidx, cluster) in shape_glyphs(bytes, text).2 {
             // Whitespace legitimately maps to an empty glyph. Everything else
             // must have geometry or the character renders as a blank gap.
-            let source = chars.get(info.cluster as usize).copied();
+            let source = chars.get(cluster as usize).copied();
             if source.is_some_and(char::is_whitespace) {
                 continue;
             }
-            let gid = ttf_parser::GlyphId(info.glyph_id as u16);
+            let gid = ttf_parser::GlyphId(gidx);
             let mut counter = Counter(0);
             let drawn = ttf.outline_glyph(gid, &mut counter).is_some();
             assert!(
                 drawn,
-                "glyph {} for {:?} in {text:?} has no outline -- substitution target missing from subset",
-                info.glyph_id,
-                source
+                "glyph {gidx} for {source:?} in {text:?} has no outline -- substitution target missing from subset"
             );
             assert!(
                 counter.0 > 0,
                 "glyph {} for {:?} in {text:?} has an empty outline",
-                info.glyph_id,
+                gidx,
                 source
             );
         }

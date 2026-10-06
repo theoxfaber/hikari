@@ -8,7 +8,7 @@
 
 use std::sync::OnceLock;
 
-use rustybuzz::{Direction, UnicodeBuffer};
+use harfrust::{Buffer, Direction, ShapeOptions};
 
 use crate::font::{FontId, BUILTIN_FONT};
 use unicode_bidi::BidiInfo;
@@ -375,9 +375,8 @@ fn shape_segment(run: &str, rtl: bool, px: f32, font: FontId) -> (Vec<PlacedAdva
     if run.is_empty() {
         return (Vec::new(), 0.0);
     }
-    let face = crate::font::hb_face(font);
-    let scale = px / face.units_per_em() as f32;
-    // Byte-index -> char map (rustybuzz clusters are byte indices).
+    let scale = px / crate::font::units_per_em_of(font) as f32;
+    // Byte-index -> char map (shaper clusters are byte indices).
     let index: Vec<(usize, char)> = run.char_indices().collect();
     let char_at = |byte_idx: usize| -> char {
         let mut ch = '\u{FFFD}';
@@ -390,16 +389,38 @@ fn shape_segment(run: &str, rtl: bool, px: f32, font: FontId) -> (Vec<PlacedAdva
         }
         ch
     };
-    let mut buf = UnicodeBuffer::new();
+    let mut buf = Buffer::new();
     buf.push_str(run);
+    // Segment properties are guessed *first*, then only the direction is
+    // overridden.
+    //
+    // The order matters and getting it wrong is invisible in Latin. Script
+    // selection decides which GSUB features apply, and a shaper told only a
+    // direction has to pick a script itself: `rustybuzz` 0.14 defaulted to the
+    // Latin set, which gave correct ligatures and kerning but left Arabic
+    // unjoined; `harfrust` defaults the other way, which joins Arabic and
+    // silently drops `ffi` into three separate letters. Both looked fine in the
+    // script they happened to be right about, which is why neither was caught.
+    //
+    // Guessing infers the script from the run's first strong character, and
+    // `visual_runs` already splits on bidi, so a run is normally
+    // script-homogeneous. It is not guaranteed -- a run may mix Latin into RTL
+    // text -- so this is a known limit rather than a guarantee. Splitting runs by
+    // script as well as direction is the fix, and needs script data this crate
+    // does not currently carry.
+    buf.guess_segment_properties();
     buf.set_direction(if rtl {
         Direction::RightToLeft
     } else {
         Direction::LeftToRight
     });
-    let output = rustybuzz::shape(face, &[], buf);
-    let infos = output.glyph_infos();
-    let positions = output.glyph_positions();
+    // Cached per thread per font: `ShaperFont::new` re-resolves the layout
+    // tables, which cost ~16% of the render benchmark when run per shaped run.
+    let shaper = crate::font::shaper_for(font);
+    harfrust::shape(shaper, &mut buf, ShapeOptions::default())
+        .expect("shaping a registered font never fails");
+    let infos = buf.glyph_infos();
+    let positions = buf.glyph_positions();
     let mut total = 0.0;
     let advances = infos
         .iter()

@@ -212,7 +212,7 @@ into contextual presentation forms. Re-deriving a glyph id from the source
 character throws that away, and the character paints as a blank gap — with
 measurement, layout and advance widths all still correct, so nothing fails.
 
-`hikari-core` carries the glyph id `rustybuzz` produced, and `hikari-raster`
+`hikari-core` carries the glyph id the shaper produced, and `hikari-raster`
 paints that id. The fallback font, which never passes through the shaper, is
 still addressed by character.
 
@@ -376,9 +376,13 @@ wasm-bindgen target/wasm32-unknown-unknown/release/hikari_wasm.wasm \
 tree is pure Rust with no C zlib anywhere (`flate2/rust_backend`, `zlib-rs`),
 so nothing needs a cross-compiled sysroot.
 
-Release build is ~2.8 MB. `wasm-opt` with a size budget is tracked, and the
-playground bundle is rebuilt in CI rather than committed so it can never drift
-from the library it demonstrates.
+An unoptimised `cargo build --release --target wasm32-unknown-unknown` is
+3.29 MB, measured. That went up by 340 KB when the shaper moved to `harfrust`
+plus `read-fonts`; the trade is a maintained shaper for the size, and `wasm-opt`
+should claw some of it back. No size budget is enforced in CI, so the figure can
+drift unnoticed -- tracking one is on the roadmap. The playground bundle is
+rebuilt in CI rather than committed so it can never drift from the library it
+demonstrates.
 
 ---
 
@@ -400,9 +404,10 @@ output formats cannot disagree with each other or with the measured text
 metrics. Wrapping and line breaking are pure functions in `hikari-core`, called
 by both layout and paint, so they agree exactly by construction.
 
-Upstream dependencies only, no forks: `taffy` (layout), `rustybuzz` (shaping),
-`tiny-skia` (raster), `pdf-writer` (PDF objects), `image` (codecs), `fontdue`
-(glyph raster), `napi` (Node), `wasm-bindgen` (WASM).
+Upstream dependencies only, no forks: `taffy` (layout), `harfrust` (shaping),
+`read-fonts` (font parsing), `tiny-skia` (raster), `pdf-writer` (PDF objects),
+`image` (codecs), `fontdue` (glyph raster), `napi` (Node), `wasm-bindgen`
+(WASM).
 
 Zero `unsafe` blocks in the workspace, enforced by `unsafe_code = "forbid"`.
 
@@ -444,11 +449,12 @@ Stated plainly, because a limitations section that hedges is worse than none.
   reaches a *system* font, so a render may differ between machines — the
   determinism guarantee below covers every script the embedded faces cover, and
   CJK only when this feature is on.
-- **`rustybuzz` and `ttf-parser` are declared unmaintained**
-  (RUSTSEC-2026-0206, RUSTSEC-2026-0192). The shaper sitting at the centre of
-  this project being unmaintained is the largest outstanding risk. Both
-  advisories are ignored in `deny.toml` with written reasons rather than
-  tolerated silently. See [Roadmap](#roadmap).
+- **`ttf-parser` is still declared unmaintained** (RUSTSEC-2026-0192), reached
+  through `hikari-pdf` and through `fontdue`, the glyph rasterizer. The shaper no
+  longer touches it, so this is now confined to the rasterizer rather than the
+  critical path; it cannot be cleared until `fontdue` is replaced. It is ignored
+  in `deny.toml` with that reason written down rather than tolerated silently.
+  See [Roadmap](#roadmap).
 - **CSS coverage is narrow by design.** The `Style` surface is about two dozen
   fields: box model, `display` (`Flex`/`Grid`/`Block`), `dir`, `justify`,
   `align`, `gap`, `grow`, `absolute` with `left`/`top`, `radius`, `border`,
@@ -481,10 +487,17 @@ Ordered by what most limits the project, not by what is easiest.
       trees or externally tagged JSON. Colour strings and custom fonts both work
       in JSON, but the ergonomics of building a tree by hand are still the
       weakest part of the API.
-- [ ] **Migrate off `rustybuzz` and `ttf-parser` to `fontations`**
-      (`skrifa` / `write-fonts`). Both crates are unmaintained. This is the
-      single largest piece of technical debt and the only reason abandoned code
-      sits in the most critical path.
+- [x] **Moved the shaper off `rustybuzz` onto `harfrust`.** `rustybuzz` is
+      declared unmaintained (RUSTSEC-2026-0206) and sat in the most critical
+      path; that advisory is now gone from the tree. `harfrust` is the HarfBuzz
+      project's own maintained fork, which began as a fork of `rustybuzz` and
+      swapped `ttf-parser` for `read-fonts`, so the two produce identical output
+      while depending on maintained code. The `ttf-parser` advisory
+      (RUSTSEC-2026-0192) remains, but only via the rasterizer.
+- [ ] **Replace `fontdue`, the last path to `ttf-parser`.** This is what
+      actually retires RUSTSEC-2026-0192. The shaper is off the unmaintained
+      parser; the glyph rasterizer is not. `fontdue` is also the only remaining
+      reason the WASM build carries a duplicate font parser.
 - [x] **Bundle OFL Hebrew and CJK-covering fonts.** A layout-preserving subset
       of Noto Sans Hebrew is always bundled (57 KB), and Noto Sans SC is
       available behind the opt-in `bundled-cjk` feature (9,968,236 B, fetched by
