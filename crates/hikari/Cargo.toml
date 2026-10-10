@@ -31,7 +31,6 @@ bundled-cjk = ["hikari-rs-core/bundled-cjk"]
 criterion.workspace = true
 image.workspace = true
 ed25519-dalek.workspace = true
-fontdue.workspace = true
 serde_json.workspace = true
 
 [[bench]]

@@ -15,7 +15,7 @@ name = "hikari_raster"
 [dependencies]
 hikari-rs-core.workspace = true
 tiny-skia.workspace = true
-fontdue.workspace = true
+skrifa.workspace = true
 image.workspace = true
 
 # zlib-rs (SIMD) on native for encode speed; pure-Rust backend on wasm.

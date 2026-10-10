@@ -3,25 +3,25 @@
 # One case per capability, so a regression names the feature that moved
 # rather than hiding inside one opaque image. Cross-platform byte
 # determinism is what makes these meaningful; see BENCHMARKS.md.
-gradient-linear 13666 d5f1564b984a3473909ffac5501799884a8d7c38b0bc8f259d5c7db9cc628384 # linear gradient angle and stop interpolation
-gradient-radial 100475 309f045f659358ee49766fa11510744653a3f10e07ff85cf63a510e958e8bb32 # radial gradient center, radius and stops
-border-radius 6567 436ef7602088c9bb260b203ceb1195ad84aa2dba637afab89b16498ee5c080c6 # corner rounding and border width
+gradient-linear 10935 88f9ba342cfb30345e9979f9c3fb0008898755dd22eef5cadfee224d63dc3b12 # linear gradient angle and stop interpolation
+gradient-radial 99707 519f53631e9d1504b2b85b1d719d577536644c70732a972b14c2be7d3cc3a22e # radial gradient center, radius and stops
+border-radius 6009 257dffa3f4ca085037247aaac8fa5c3f9b5a3eeeabab3f40c309aeb92569530c # corner rounding and border width
 box-shadow 14058 51d253137876110a97d6f276aa5b505f7a9cc0fa658dbdeb2ce4c66d5716c6c6 # shadow offset, blur radius and spread
-grid-layout 5393 ae2ecf90f4d52564297d32976611577a75d8f3a2830b25461558d86c979745b7 # equal-column grid, gap and padding
+grid-layout 4703 2a1a25f96a8380ef7a0f1299198432575c313f2d363ef626b203d5609c14ba35 # equal-column grid, gap and padding
 flex-justify-align 1503 84c0683f9ee91ed1a8e3ddf7886bb0e283c38fea05e189d20988a463a5429401 # main and cross axis distribution
-word-wrap 25446 af456653f7346087755e2656d54606402253519e9c2b0ada18ec2d41b321490d # greedy wrapping at max_width
-text-clip-gradient 15928 80c52137e8abb9356f3c078f6e383d1039db5d64f81be6cabd8ddcde5f567064 # background-clip: text through glyphs
-latin-typography 12905 554bf3a8a4f8581c505ed4c04478834640da21cc231cba35035ecdeae9bacc4f # kerning, ligatures and Latin metrics
-arabic-joining 6838 7d3e1368de4a026380e859375c6a2d74cfa2d103e68285dd0bfc48bd2be08731 # Arabic contextual joining through GSUB
-hebrew-rtl 5413 b462c7ae87db3c2a5ecad39917139bcd4505ed6095171a0dbaff5de9063ee730 # right-to-left ordering and Hebrew coverage
-mixed-direction 8576 f5173fb5db320fba455301a161d55c8b47454e743838e5b0c223ccecbcde28d1 # bidi run splitting across a directional boundary
+word-wrap 17766 0cb0f50f9dff4b577113f1581b521a3c4af3edfdd46a7456d07c3bbebbd913f8 # greedy wrapping at max_width
+text-clip-gradient 12631 2c4fecf322f7acbc2585bbe1c3e4ab65041ef6ed4c5ae993f9f4fda297465417 # background-clip: text through glyphs
+latin-typography 8637 86814ca6af42b842d2e0a07f534deea9715160b09934e3832bdef9dd5c2e2d6d # kerning, ligatures and Latin metrics
+arabic-joining 5022 a6a4541a8a97267be313439ec70f37e203db9cb4564c514ac4e984a117d00ae1 # Arabic contextual joining through GSUB
+hebrew-rtl 4017 f5844bff62d520460aad95942263939cf42a7d9c3a874873f1be56497118d3ff # right-to-left ordering and Hebrew coverage
+mixed-direction 6192 f7119039a845948a6c5677433a5caf60a5ff1b861deea6783d32df37773a34fa # bidi run splitting across a directional boundary
 image-clipped 6686 5489ca54cb07dd8608f9eaf6a05d55e932ce0641c6463b372808b7f6f4631c78 # image decode, sizing and rounded clip
 absolute-positioning 2096 6657a2b4a3ccaa59ce3c1f8295c40b9ffa8d5f3b7c19ad9f3280e1fca4b4b6cc # absolute offsets independent of flow
-nested-containers 7727 4215e24d10bc496f29391b7d67ab30a57dcaebeead511fad88ee0a8676250f11 # nested layout, margins and inherited padding
+nested-containers 6692 62d7759690f1d529450f8e35d641dab901341ccde6fb461e9af42a9e666658ff # nested layout, margins and inherited padding
 opaque-alpha-strip 595 31206d4459c753425840b7ce4e06bd3e1ed77baf71d8b405b4af655785692519 # alpha channel stripping when the frame is fully opaque
 blend-multiply 584 03013c7140e41be1ded3c6e6578fdaf64365e72f36f781b3273330d5b307d728 # multiply compositing of a fill against its parent
-blend-screen-text 5415 99350491ff4d793791714357735ffc6aac5b62f3345f0a6e54e686d332838af1 # a blend mode reaching the glyph path, not just fills
+blend-screen-text 3935 e49d39e10001eaf6343b2b95c75631969e23b4a9f9ebff2e7af0dd388ba1f17a # a blend mode reaching the glyph path, not just fills
 shadow-inset-top 2744 74f3ac821e8e72836159c110afb6c22154c8b34e57261fc39d3fccb14b8bab08 # an inset shadow staying inside the silhouette
-css-html-card 21537 e28232c1d7bfb41229f64fb808e1d814b00312baba8bb30fff5d77a7b27715fa # the CSS/HTML front end rendering the same card
+css-html-card 18173 575870ffb622295ba946cac22e1731238f89c88455de7c9c874554eebfd3ea1c # the CSS/HTML front end rendering the same card
 shadow-inset-edge 1877 38f5431402406b6c807df35e829231bdf345bc082e2bd7a2fd5e25031fe8e6d1 # the hard-edged inset variant ignoring any blur radius
 svg-reference 580 283abb82fa8b60c1039fb0b15a68f70afe40d10a5ae916fd3c98f2269639c0dd # text output shape and glyph ids

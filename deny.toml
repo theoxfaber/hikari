@@ -4,22 +4,24 @@ db-urls = ["https://github.com/rustsec/advisory-db"]
 
 # `ttf-parser` is declared unmaintained by its author (RUSTSEC-2026-0192).
 #
-# We depend on it directly in hikari-pdf, which embeds font subsets and reads
-# glyph metrics. The shaper no longer contributes: `rustybuzz` was replaced with
-# `harfrust`, which reads through `read-fonts`, so that path is off ttf-parser.
-# What remains is `fontdue`, the rasterizer, which still depends on ttf-parser
-# itself -- so the advisory cannot be cleared until the rasterizer is replaced
-# too, no matter what our own call sites do. Warning rather than failing keeps
-# the signal visible without pretending a partial swap fixes something it cannot.
+# Exactly one crate still depends on it directly: hikari-pdf, which embeds font
+# subsets and reads glyph metrics to build PDF font objects.
 #
-# The RustSec advisory's own recommendation for this crate is `skrifa`.
+# Everything else has moved. The shaper uses `harfrust` and the rasterizer uses
+# `skrifa`; both read through `read-fonts`, so there is now one font parser in the
+# tree instead of two, and `fontdue` is gone entirely. That matters beyond the
+# advisory: it removed a duplicate parser from the WebAssembly build.
+#
+# What remains is PDF font embedding, which is the last holdout and a genuinely
+# separate piece of work from rendering. RustSec's own recommendation for this
+# crate is `skrifa`.
 unmaintained = "all"
 
 # Ignored explicitly, with a reason, rather than by lowering a severity knob.
 # This keeps the exception visible in the config and in every `cargo deny`
 # report instead of quietly weakening the gate for everything else.
 ignore = [
-    { id = "RUSTSEC-2026-0192", reason = "ttf-parser is declared unmaintained. Our shaper no longer reaches it -- harfrust reads via read-fonts -- but hikari-pdf uses it directly and fontdue (the rasterizer) depends on it, so it stays in the tree until the rasterizer is replaced. RustSec's own recommendation for this crate is skrifa." },
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser is declared unmaintained. One direct user left: hikari-pdf, for font embedding and metrics. The shaper (harfrust) and the rasterizer (skrifa) both moved to read-fonts, so the rasterizer no longer pulls it in and fontdue is gone from the tree. Remaining work is PDF font embedding. RustSec's own recommendation for this crate is skrifa." },
 ]
 
 [licenses]

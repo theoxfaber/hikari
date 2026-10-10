@@ -8,8 +8,51 @@
 //! test rather than a subtly worse image.
 
 use super::shape::font_bytes;
+use skrifa::MetadataProvider;
 
 const SOURCE: &[u8] = include_bytes!("../assets/DejaVuSans.ttf");
+
+/// Counts path operations, to answer "does this glyph have any geometry?".
+///
+/// This replaced a `ttf_parser::OutlineBuilder`, which was the last place the
+/// core crate reached the unmaintained parser. Note it counts *operations*, not
+/// points: the old builder counted one per callback too, so the threshold below
+/// means the same thing it always did.
+#[derive(Default)]
+struct Counter(usize);
+
+impl skrifa::outline::OutlinePen for Counter {
+    fn move_to(&mut self, _: f32, _: f32) {
+        self.0 += 1;
+    }
+    fn line_to(&mut self, _: f32, _: f32) {
+        self.0 += 1;
+    }
+    fn quad_to(&mut self, _: f32, _: f32, _: f32, _: f32) {
+        self.0 += 1;
+    }
+    fn curve_to(&mut self, _: f32, _: f32, _: f32, _: f32, _: f32, _: f32) {
+        self.0 += 1;
+    }
+    fn close(&mut self) {
+        self.0 += 1;
+    }
+}
+
+/// Does `gid` have a non-empty outline in `bytes`?
+fn glyph_is_drawn(bytes: &[u8], gid: u16) -> bool {
+    let font = skrifa::FontRef::new(bytes).expect("font parses");
+    let Some(outline) = font.outline_glyphs().get(skrifa::GlyphId::new(gid as u32)) else {
+        return false;
+    };
+    let mut counter = Counter::default();
+    let settings = skrifa::outline::DrawSettings::unhinted(
+        skrifa::instance::Size::new(16.0),
+        skrifa::instance::LocationRef::default(),
+    );
+    let _ = outline.draw(settings, &mut counter);
+    counter.0 > 0
+}
 
 /// The `'static` requirement on the helpers below is not incidental:
 /// `read-fonts` stores borrowed font data as a `Blob::Static` slice, so a font
@@ -60,11 +103,11 @@ fn shape(bytes: &'static [u8], text: &str) -> (usize, i32) {
 /// nothing), and presentation forms reached only through GSUB have no direct
 /// cmap entry under their own codepoint, so a scan is the honest inverse here.
 fn glyph_to_codepoint(bytes: &[u8], gid: u16) -> Option<char> {
-    let ttf = ttf_parser::Face::parse(bytes, 0).expect("ttf parses");
+    let font = skrifa::FontRef::new(bytes).expect("font parses");
     for (lo, hi) in RANGES {
         for cp in *lo..=*hi {
             if let Some(ch) = char::from_u32(cp) {
-                if ttf.glyph_index(ch).map(|g| g.0) == Some(gid) {
+                if font.charmap().map(ch).map(|g| g.to_u32() as u16) == Some(gid) {
                     return Some(ch);
                 }
             }
@@ -115,9 +158,12 @@ fn embedded_font_has_cmap() {
         has_table(font_bytes(), b"cmap"),
         "embedded font has no cmap"
     );
-    let ttf = ttf_parser::Face::parse(font_bytes(), 0).expect("subset parses");
-    assert!(ttf.glyph_index('A').is_some(), "'A' missing from cmap");
-    assert!(ttf.glyph_index('\u{0645}').is_some(), "Arabic meem missing");
+    let font = skrifa::FontRef::new(font_bytes()).expect("subset parses");
+    assert!(font.charmap().map('A').is_some(), "'A' missing from cmap");
+    assert!(
+        font.charmap().map('\u{0645}').is_some(),
+        "Arabic meem missing"
+    );
 }
 
 #[test]
@@ -209,25 +255,7 @@ fn shaped_glyphs_always_have_outlines() {
     // glyph count and advance are all correct, and the character simply
     // renders as a blank gap. Nothing errors. The only way to see it is to
     // check that every glyph the shaper can emit actually has geometry.
-    struct Counter(usize);
-    impl ttf_parser::OutlineBuilder for Counter {
-        fn move_to(&mut self, _: f32, _: f32) {
-            self.0 += 1;
-        }
-        fn line_to(&mut self, _: f32, _: f32) {
-            self.0 += 1;
-        }
-        fn quad_to(&mut self, _: f32, _: f32, _: f32, _: f32) {
-            self.0 += 1;
-        }
-        fn curve_to(&mut self, _: f32, _: f32, _: f32, _: f32, _: f32, _: f32) {
-            self.0 += 1;
-        }
-        fn close(&mut self) {}
-    }
-
     let bytes = font_bytes();
-    let ttf = ttf_parser::Face::parse(bytes, 0).expect("subset parses");
 
     let samples = [
         "office waffle flag affix",                 // fi/fl/ffi/f-l ligatures
@@ -248,18 +276,15 @@ fn shaped_glyphs_always_have_outlines() {
             if source.is_some_and(char::is_whitespace) {
                 continue;
             }
-            let gid = ttf_parser::GlyphId(gidx);
-            let mut counter = Counter(0);
-            let drawn = ttf.outline_glyph(gid, &mut counter).is_some();
+            let drawn = glyph_is_drawn(bytes, gidx);
             assert!(
                 drawn,
                 "glyph {gidx} for {source:?} in {text:?} has no outline -- substitution target missing from subset"
             );
             assert!(
-                counter.0 > 0,
+                drawn,
                 "glyph {} for {:?} in {text:?} has an empty outline",
-                gidx,
-                source
+                gidx, source
             );
         }
     }
@@ -295,31 +320,14 @@ const RANGES: &[(u32, u32)] = &[
 fn every_covered_codepoint_has_an_outline() {
     // Guards the composite closure: a composite whose components were dropped
     // still has an entry in loca but renders truncated or blank.
-    struct Counter(usize);
-    impl ttf_parser::OutlineBuilder for Counter {
-        fn move_to(&mut self, _: f32, _: f32) {
-            self.0 += 1;
-        }
-        fn line_to(&mut self, _: f32, _: f32) {
-            self.0 += 1;
-        }
-        fn quad_to(&mut self, _: f32, _: f32, _: f32, _: f32) {
-            self.0 += 1;
-        }
-        fn curve_to(&mut self, _: f32, _: f32, _: f32, _: f32, _: f32, _: f32) {
-            self.0 += 1;
-        }
-        fn close(&mut self) {}
-    }
-
-    let ttf = ttf_parser::Face::parse(font_bytes(), 0).expect("subset parses");
+    let font = skrifa::FontRef::new(font_bytes()).expect("subset parses");
     let mut checked = 0;
     for (lo, hi) in RANGES {
         for cp in *lo..=*hi {
             let Some(ch) = char::from_u32(cp) else {
                 continue;
             };
-            let Some(gid) = ttf.glyph_index(ch) else {
+            let Some(gid) = font.charmap().map(ch) else {
                 continue;
             };
             // Whitespace, zero-width marks and format controls legitimately
@@ -342,10 +350,11 @@ fn every_covered_codepoint_has_an_outline() {
                 checked += 1;
                 continue;
             }
-            let mut counter = Counter(0);
-            let has_outline = ttf.outline_glyph(gid, &mut counter).is_some();
-            assert!(has_outline, "U+{cp:04X} '{ch}' has no outline");
-            assert!(counter.0 > 0, "U+{cp:04X} '{ch}' produced an empty outline");
+            let gid = gid.to_u32() as u16;
+            assert!(
+                glyph_is_drawn(font_bytes(), gid),
+                "U+{cp:04X} '{ch}' has no outline or an empty one"
+            );
             checked += 1;
         }
     }

@@ -212,10 +212,12 @@ npm i @hikari-rs/node</code></pre>
       <div class="callout" style="margin-top:var(--s-6)">
         <p>
           <strong>Two things to know before you rely on it.</strong>
-          The glyph rasterizer still reaches <code>ttf-parser</code>, which is
-          declared unmaintained upstream, so replacing it is the top open item;
-          the shaper itself moved to the maintained <code>harfrust</code> and no
-          longer touches it. And CJK falls back to a system font, so
+          PDF font embedding still reaches <code>ttf-parser</code>, which is
+          declared unmaintained upstream, so that is the top open item. The
+          shaper moved to the maintained <code>harfrust</code> and the glyph
+          rasterizer to <code>skrifa</code>, both reading through
+          <code>read-fonts</code>, so there is now one font parser where there
+          were two. And CJK falls back to a system font, so
           byte-identical output holds for every script the embedded font covers
           but not for CJK. Both are documented, with the rest, in the README's
           limitations.

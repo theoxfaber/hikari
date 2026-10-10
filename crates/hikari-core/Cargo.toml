@@ -32,7 +32,7 @@ thiserror.workspace = true
 harfrust.workspace = true
 read-fonts = "0.45"
 unicode-bidi.workspace = true
-ttf-parser = { version = "0.21" }
+skrifa.workspace = true
 image.workspace = true
 
 [build-dependencies]

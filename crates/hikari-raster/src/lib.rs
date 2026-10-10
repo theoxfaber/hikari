@@ -2,34 +2,37 @@
 //! CPU raster backend: `Placed` tree -> PNG bytes via `tiny-skia`.
 //!
 //! Text is shaped with upstream `rustybuzz` (`hikari-core`) and rasterized
-//! with `fontdue` from one embedded `DejaVu Sans`, so layout and paint agree
+//! through `skrifa` from one embedded `DejaVu Sans`, so layout and paint agree
 //! and output is deterministic across machines. Complex-script joining is
 //! best-effort in v0.2; per-font fallback is Step 1b on the roadmap.
 
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
-use fontdue::{Font, FontSettings};
 use hikari_core::{font_bytes, hash_bytes, Error, FontId, HashCache, ImgFit, Placed, BUILTIN_FONT};
+use skrifa::instance::LocationRef;
+use skrifa::{FontRef, MetadataProvider};
+pub mod glyph;
+
 use tiny_skia::{BlendMode, FillRule, Mask, Paint, PathBuilder, Pixmap, Transform};
 
-/// `fontdue` faces for every registered `FontId`, built on first use.
+/// Parsed font faces for every registered `FontId`, built on first use.
 ///
 /// Kept separate from the `hikari-core` registry because the parsed types are
-/// different crates' (`fontdue::Font` vs `rustybuzz::Face`). Ids are shared,
+/// different crates' (`skrifa::FontRef` vs `harfrust::Font`). Ids are shared,
 /// bytes are shared, parse trees are not.
-static FACES: OnceLock<Mutex<HashMap<FontId, &'static Font>>> = OnceLock::new();
+static FACES: OnceLock<Mutex<HashMap<FontId, &'static FontRef<'static>>>> = OnceLock::new();
 
 /// System CJK-capable fallback, loaded lazily and only when a glyph is
 /// missing from the primary font. Never bundled (proprietary on macOS);
 /// production deployments should ship a subsetted OFL CJK font instead.
-static FALLBACK: OnceLock<Option<Font>> = OnceLock::new();
+static FALLBACK: OnceLock<Option<&'static FontRef<'static>>> = OnceLock::new();
 
-/// The `fontdue` face for a registered font id, parsed once and cached.
+/// The `skrifa` face for a registered font id, parsed once and cached.
 ///
 /// An unknown id falls back to the embedded font so a tree naming a font the
 /// caller forgot to register still renders, just in the wrong typeface.
-fn font(id: FontId) -> Result<&'static Font, Error> {
+fn font(id: FontId) -> Result<&'static FontRef<'static>, Error> {
     let cache = FACES.get_or_init(|| Mutex::new(HashMap::new()));
     let mut map = lock_cache(cache);
     if let Some(f) = map.get(&id) {
@@ -37,21 +40,29 @@ fn font(id: FontId) -> Result<&'static Font, Error> {
     }
     let bytes = hikari_core::font_entry(id).map_or_else(font_bytes, hikari_core::FontEntry::bytes);
     let parsed =
-        Font::from_bytes(bytes, FontSettings::default()).map_err(|e| Error::Font(e.to_owned()))?;
-    // `fontdue` copies the bytes it is given, so leaking here only leaks the
-    // handle, and the registry already dedupes identical fonts by content.
-    let leaked: &'static Font = Box::leak(Box::new(parsed));
+        FontRef::new(bytes).map_err(|e| Error::Font(format!("{id}: not a usable font: {e:?}")))?;
+    // `FontRef` borrows the bytes rather than copying them, and the registry
+    // already leaks every font for the life of the process, so leaking the thin
+    // handle here borrows nothing extra. The registry also dedupes identical
+    // fonts by content, so this cannot grow without bound.
+    let leaked: &'static FontRef<'static> = Box::leak(Box::new(parsed));
     map.insert(id, leaked);
     Ok(leaked)
 }
 
-fn fallback_font() -> Option<&'static Font> {
+fn fallback_font() -> Option<&'static FontRef<'static>> {
     use hikari_core::fallback_font_bytes;
-    FALLBACK
-        .get_or_init(|| {
-            fallback_font_bytes().and_then(|b| Font::from_bytes(b, FontSettings::default()).ok())
+    // `get_or_init` hands back a reference to the slot; dereferencing it copies
+    // the `Option<&FontRef>`, which is `Copy` because the reference is.
+    *FALLBACK.get_or_init(|| {
+        let bytes: &'static [u8] = fallback_font_bytes()?;
+        // Leaked for the same reason as `font`: the fallback bytes are already
+        // process-lifetime, so a borrow costs nothing.
+        FontRef::new(bytes).ok().map(|f| {
+            let leaked: &'static mut FontRef<'static> = Box::leak(Box::new(f));
+            &*leaked
         })
-        .as_ref()
+    })
 }
 
 /// Render a laid-out tree to PNG bytes.
@@ -919,7 +930,7 @@ fn draw_image(
     Ok(())
 }
 
-/// Glyph bitmap cache: `fontdue` rasterization is the dominant paint cost,
+/// Glyph bitmap cache: outline rasterization is the dominant paint cost,
 /// so repeated glyphs (headlines, tables, invoices) hit this instead.
 /// Bounded by clear-on-full (steady-state docs reuse the same glyphs).
 #[derive(Clone)]
@@ -958,6 +969,28 @@ fn lock_cache<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+/// An empty glyph that still advances.
+///
+/// Returned when a glyph cannot be outlined or has no cmap entry. It must not be
+/// zero-width, because the caller adds `advance` to the pen position and a zero
+/// would stack every following glyph on the same pixel.
+fn blank_entry(px: f32) -> GlyphEntry {
+    // No glyph id is available here, so the fallback is derived from the em
+    // square rather than from any specific glyph: half the size. It only has to
+    // be non-zero, because a zero advance would stack every following glyph on
+    // the same pixel.
+    let advance = (px / 2.0).max(1.0);
+    GlyphEntry {
+        w: 0,
+        h: 0,
+        xmin: 0.0,
+        ymin: 0.0,
+        height: 0.0,
+        advance,
+        bitmap: Vec::new(),
+    }
+}
+
 /// Which glyph to rasterize, and how to name it in the cache.
 #[derive(Clone, Copy)]
 enum GlyphRef {
@@ -968,7 +1001,7 @@ enum GlyphRef {
     Char(char),
 }
 
-fn rasterize_cached(font_id: u8, font: &Font, glyph: GlyphRef, px: f32) -> GlyphEntry {
+fn rasterize_cached(font_id: u8, font: &FontRef<'static>, glyph: GlyphRef, px: f32) -> GlyphEntry {
     // Keyed on the shaped glyph id *and* the font, not the source character:
     // after shaping, one character can become a ligature glyph, one glyph can
     // stand in for several characters, and the same id means different glyphs
@@ -982,18 +1015,33 @@ fn rasterize_cached(font_id: u8, font: &Font, glyph: GlyphRef, px: f32) -> Glyph
     if let Some(hit) = cache.get(&key) {
         return hit.clone();
     }
-    let (m, bmp) = match glyph {
-        GlyphRef::Id(_, gid) => font.rasterize_indexed(gid, px),
-        GlyphRef::Char(ch) => font.rasterize(ch, px),
+    // Every bundled font sits at its default instance, so no variation axis is
+    // ever applied here. Threading a real location through would be the change
+    // needed to support variable fonts, which nothing in this crate does.
+    let location = LocationRef::default();
+    // `Char` is only ever used for the system fallback, where the glyph was
+    // never shaped and so there is no shaped id to draw. It resolves through
+    // the same cmap the coverage check uses.
+    let gid = match glyph {
+        GlyphRef::Id(_, gid) => gid,
+        GlyphRef::Char(ch) => match font.charmap().map(ch) {
+            Some(g) => g.to_u32() as u16,
+            // Unmappable: a zero-width, zero-ink glyph that still advances, so
+            // the run does not collapse. The caller already checked coverage.
+            None => return blank_entry(px),
+        },
+    };
+    let Some(g) = crate::glyph::rasterize(font, gid, px, location) else {
+        return blank_entry(px);
     };
     let entry = GlyphEntry {
-        w: m.width,
-        h: m.height,
-        xmin: m.bounds.xmin,
-        ymin: m.bounds.ymin,
-        height: m.bounds.height,
-        advance: m.advance_width.max(1.0),
-        bitmap: bmp,
+        w: g.w,
+        h: g.h,
+        xmin: g.xmin,
+        ymin: g.ymin,
+        height: g.height,
+        advance: g.advance.max(1.0),
+        bitmap: g.bitmap,
     };
     if cache.len() >= MAX_GLYPHS {
         // Crude bound: steady-state documents reuse glyphs, so a full
@@ -1037,7 +1085,7 @@ fn draw_text(
             // the system fallback, and that one is addressed by character
             // because it was never shaped anywhere.
             let (font_id, glyph_font) = if adv.missing {
-                match fallback_font().filter(|fb| fb.has_glyph(adv.ch)) {
+                match fallback_font().filter(|fb| crate::glyph::has_glyph(fb, adv.ch)) {
                     Some(fb) => (1u8, fb),
                     None => (0, font(adv.font)?),
                 }
@@ -1374,12 +1422,49 @@ mod tests {
     }
 
     #[test]
-    fn png_signature_and_size() {
+    fn png_signature_and_ink() {
         let tree = Node::banner(400.0, 200.0, "#123456", "Hi", 48.0, "#ffffff");
         let placed = compute_layout(&tree, 400.0, 200.0).unwrap();
         let bytes = render_to_png(&placed, 400, 200).unwrap();
         assert_eq!(&bytes[..8], &[137, 80, 78, 71, 13, 10, 26, 10]);
-        assert!(bytes.len() > 1000);
+
+        // Asserted on ink, not on encoded size. This test used to check
+        // `bytes.len() > 1000`, which is a claim about the PNG *encoder* dressed
+        // up as a claim about the renderer: swapping the glyph rasterizer moved
+        // it to 971 bytes without changing a single pixel of what was drawn, and
+        // 971-versus-1000 says nothing about whether the text rendered.
+        //
+        // The numbers below are measured on the 400x200 frame: "Hi" at 48px inks
+        // 665 pixels inside a 40x36 box centred at (180,77). The box matters as
+        // much as the count -- text drawn at the wrong vertical offset inks a
+        // perfectly plausible amount in the wrong place, which is exactly what
+        // happens if a glyph's bounds are reported as its top edge instead of
+        // its bottom.
+        let img = image::load_from_memory(&bytes).expect("decode").to_rgba8();
+        let bg = *img.get_pixel(0, 0);
+        let ink = img.pixels().filter(|p| **p != bg).count();
+        assert!(
+            (600..=700).contains(&ink),
+            "expected about 665 ink pixels for \"Hi\" at 48px, got {ink}"
+        );
+        let mut min_x = u32::MAX;
+        let mut min_y = u32::MAX;
+        let mut max_x = 0;
+        let mut max_y = 0;
+        for (x, y, p) in img.enumerate_pixels() {
+            if *p != bg {
+                min_x = min_x.min(x);
+                min_y = min_y.min(y);
+                max_x = max_x.max(x);
+                max_y = max_y.max(y);
+            }
+        }
+        assert_eq!(
+            (min_x, min_y),
+            (180, 77),
+            "text moved horizontally or vertically"
+        );
+        assert_eq!((max_x, max_y), (220, 113), "text box changed size");
     }
 
     #[test]

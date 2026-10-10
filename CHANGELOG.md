@@ -3,6 +3,78 @@
 All notable changes to Hikari. Versions match the workspace `version` and
 the `hikari-rs` facade crate.
 
+## v0.21.2 — fontdue replaced by skrifa + tiny-skia
+
+### Changed
+- **Glyph rasterization no longer uses `fontdue`.** Outlines come from `skrifa`
+  and coverage from `tiny-skia`, which was already a dependency for the rest of
+  the raster backend. `fontdue` is gone from the tree entirely.
+- This removes the last non-PDF path to `ttf-parser` (RUSTSEC-2026-0192), and as
+  a side effect the tree now carries **one** font parser — `read-fonts`, reached
+  through both `harfrust` for shaping and `skrifa` for outlines — where it
+  previously carried `ttf-parser` twice, via `rustybuzz` and `fontdue`.
+
+  `hikari-core` no longer touches `ttf-parser` at all; its subset tests moved to
+  `skrifa`. One direct user remains, `hikari-pdf`, which is now the only thing
+  standing between this project and a clean advisory report.
+
+### The bounds convention, which is the whole subtlety
+
+A rasterized glyph is an alpha bitmap plus metrics for placing it, and those
+metrics are reported relative to the pen. The vertical one is counter-intuitive:
+`ymin` is the glyph's **lowest** point, y-up from the baseline, and `draw_text`
+places the top edge at `baseline - ymin - height`. Reporting the *top* edge as
+`ymin` shifts every glyph down by exactly its own height — which still produces a
+plausible image with a plausible ink count, and would have been re-blessed
+happily as "expected antialiasing differences".
+
+It is pinned by seven tests in `hikari-raster/src/glyph.rs` instead, including
+one that asserts a glyph sitting on the baseline lands on the baseline rather
+than one height below it.
+
+### Verified equivalent, not assumed
+
+A side-by-side comparison against `fontdue` before anything was re-blessed:
+
+* **Bitmap dimensions identical** at 16, 32 and 72px for straight, round,
+  descender and apex glyphs.
+* **Bounds identical to within 0.01px** (`xmin 1.58` vs `1.57`, `ymin -0.23` vs
+  `-0.23`, height `11.67` vs `11.66`).
+* **Advances identical** to two decimals.
+* **Coverage agreement 90–99%**, rising with size — the residue is antialiasing
+  edge weighting, which is expected between two rasterizers.
+* A rendered "Hi" at 48px inks **665 pixels in both**, with an identical bounding
+  box of (180,77)–(220,113).
+
+13 of 21 corpus digests changed, every one *smaller*, consistent with slightly
+tighter edge coverage compressing better. All 20 ink floors still pass.
+
+### Fixed
+- **`png_signature_and_size` asserted the wrong thing.** It checked
+  `bytes.len() > 1000` — a claim about the PNG encoder dressed up as a claim
+  about the renderer. The rasterizer swap moved it to 971 bytes without changing
+  a pixel, and the test failed on correct output. It now asserts ink count and
+  ink bounding box, which is what would actually catch a glyph drawn in the wrong
+  place.
+
+### Performance
+**3.52ms against 4.06ms** on the 1200x630 banner — faster than the `fontdue`
+path it replaces, and 20% faster than the pre-`harfrust` baseline of 4.38ms.
+
+### Known costs
+- **WASM grew to 3.51 MB**, from 3.29 MB, as `skrifa` replaces `fontdue`. Net
+  across both migrations that is 2.95 MB → 3.51 MB: +560 KB for a maintained
+  shaper and a maintained rasterizer with no duplicated parser.
+- `skrifa` 0.33 pins `read-fonts` 0.31 while `harfrust` pins 0.45, which put two
+  copies of the font parser in the binary. Caught by `cargo deny check bans` and
+  fixed by moving to `skrifa` 0.48, which aligns on `read-fonts` 0.45. Worth
+  stating plainly: this was only caught because duplicate versions were already
+  configured to be reported.
+
+174 tests pass, clippy clean, fmt clean, `cargo deny` clean.
+
+---
+
 ## v0.21.1 — shaper moved off rustybuzz onto harfrust
 
 ### Changed
