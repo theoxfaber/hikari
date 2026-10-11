@@ -25,6 +25,7 @@ pub use hikari_core::{
 pub use hikari_core::{Filter, MaskMode, MaskSource, StyleMask};
 
 pub use hikari_core::{BlendMode, Shadow, ShadowKind};
+pub use hikari_pdf::pdfa;
 pub use hikari_pdf::{
     render_pdf as render_pdf_pages, render_pdf_with as render_pdf_pages_with, Attachment, PageSize,
     PdfOptions,

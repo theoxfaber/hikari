@@ -18,7 +18,14 @@ use hikari_core::{
     compute_layout, fallback_font_bytes, font_bytes, hash_bytes, line_height, paginate, shape_text,
     Background, Error, Flow, ImgFit, Media, Node, Placed, BUILTIN_FONT,
 };
-use pdf_writer::types::{ActionType, AnnotationType, CidFontType, FontFlags, SystemInfo};
+pub mod pdfa;
+
+#[cfg(test)]
+mod pdfa_tests;
+
+use pdf_writer::types::{
+    ActionType, AnnotationType, CidFontType, FontFlags, OutputIntentSubtype, SystemInfo,
+};
 use pdf_writer::writers::Outline;
 use pdf_writer::{Content, Filter, Name, Pdf, Rect, Ref, Str, TextStr};
 
@@ -68,6 +75,18 @@ pub struct PdfOptions {
     pub paginate: bool,
     /// Embedded file attachments (e-invoice XML, data files).
     pub attachments: Vec<Attachment>,
+    /// Emit PDF/A-1b structural metadata (default false).
+    ///
+    /// Adds an output intent with a generated sRGB ICC profile, an XMP packet
+    /// declaring `pdfaid:part` 1 and conformance B, and a content-derived
+    /// document identifier.
+    ///
+    /// **This targets PDF/A-1b; it has not been validated against a conformance
+    /// checker.** See [`pdfa`] for what is and is not claimed. Off by default
+    /// because it costs roughly 700 bytes of ICC profile and a compressed XMP
+    /// packet per document, which is a poor trade for a caller who does not need
+    /// archival output.
+    pub pdfa: bool,
 }
 
 /// One embedded file attachment.
@@ -97,6 +116,7 @@ impl PdfOptions {
             outline: true,
             paginate: false,
             attachments: Vec::new(),
+            pdfa: false,
         }
     }
 }
@@ -570,11 +590,66 @@ impl PdfDoc {
         let emit_outline = options.outline && !marks.is_empty();
         let outline_root = if emit_outline { Some(next()) } else { None };
         let outline_items: Vec<Ref> = marks.iter().map(|_| next()).collect();
+        // PDF/A stream objects are written before the catalog below, because
+        // `pdf.catalog` borrows `pdf` mutably for as long as the handle lives and
+        // these need the same borrow.
+        let pdfa_refs = if options.pdfa {
+            let icc_ref = next();
+            let metadata_ref = next();
+            {
+                // The destination profile must be a display-class ICC profile
+                // carrying `mntr`; PDF/A checks for both before it looks at
+                // anything else, so a missing tag here is the single most common
+                // rejection.
+                let icc = pdfa::srgb_icc_profile();
+                let mut profile = pdf.icc_profile(icc_ref, &icc);
+                profile.n(3);
+            }
+            {
+                let producer = format!("Hikari {}", env!("CARGO_PKG_VERSION"));
+                let xmp = pdfa::build_xmp(options.title.as_deref(), &producer);
+                // Bound rather than inlined: the compressed packet has to outlive
+                // the call that borrows it.
+                let packed = pdfa::deflate(xmp.as_bytes());
+                let mut meta = pdf.metadata(metadata_ref, &packed);
+                meta.filter(Filter::FlateDecode);
+            }
+            Some((icc_ref, metadata_ref))
+        } else {
+            None
+        };
         {
             let mut cat = pdf.catalog(catalog);
             cat.pages(page_tree);
             if let Some(root) = outline_root {
                 cat.outlines(root);
+            }
+            if let Some((icc_ref, metadata_ref)) = pdfa_refs {
+                {
+                    // `pdf-writer` 0.12 exposes `OutputIntent` as a writer but has
+                    // no constructor on `Pdf`, so it is written inline through the
+                    // typed array rather than as a separately allocated indirect
+                    // object. The keys and their order are the ones its writer
+                    // emits.
+                    // Bound, not chained: `push()` borrows the array it is
+                    // written into, so a temporary would end the borrow early.
+                    let mut intents = cat.output_intents();
+                    let mut intent = intents.push();
+                    intent.subtype(OutputIntentSubtype::PDFA);
+                    intent.output_condition(TextStr("sRGB IEC61966-2.1"));
+                    // PDF/A accepts either a well-known
+                    // `/OutputConditionIdentifier` or the destination profile. No
+                    // vendor assigns a well-known identifier to a generated sRGB
+                    // profile, so the profile is what makes this intent valid.
+                    intent.info(TextStr("sRGB IEC61966-2.1"));
+                    intent.dest_output_profile(icc_ref);
+                }
+                cat.metadata(metadata_ref);
+                // PDF/A requires the document title to be displayed rather than
+                // used as a window title, which is a viewer preference and not a
+                // property of the text itself.
+                let mut prefs = cat.viewer_preferences();
+                prefs.display_doc_title(true);
             }
             if !attach_refs.is_empty() {
                 let mut names = cat.names();
@@ -834,6 +909,15 @@ impl PdfDoc {
             }
         }
 
+        // The trailer `/ID` is required by PDF/A and must be set before `finish`,
+        // since that writes the trailer. Derived from the object bytes written so
+        // far rather than a clock: the same tree must still produce the same file,
+        // which the determinism card checks, and two different documents must never
+        // share an identifier.
+        if options.pdfa {
+            let id = pdfa::document_id(pdf.as_bytes());
+            pdf.set_file_id((id[0].to_vec(), id[1].to_vec()));
+        }
         Ok(pdf.finish())
     }
 }
@@ -1340,6 +1424,7 @@ mod tests {
             outline: true,
             paginate: false,
             attachments: Vec::new(),
+            pdfa: false,
         };
         let doc =
             render_pdf_with(&[page], PageSize::Custom { w: 400.0, h: 600.0 }, &options).unwrap();

@@ -92,6 +92,9 @@ fn main() {
         author: Some("Hikari Labs".into()),
         outline: true,
         paginate: true,
+        // An e-invoice is an archival document: PDF/A structure is what a
+        // recipient's validator will look for.
+        pdfa: true,
         attachments: vec![Attachment {
             name: "factur-x.xml".into(),
             mime: "text/xml".into(),

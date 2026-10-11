@@ -467,10 +467,25 @@ Stated plainly, because a limitations section that hedges is worse than none.
   `background`, `color`, `font_size`, `max_width`, `aspect`, `shadow` (with a
   `kind`), `blend`, `clip_text` and `link`. Absent: `float`,
   `position: fixed`/`sticky`, `transform`, `z-index`, custom properties,
-  `@media`, masks, filters, and shorthand properties. This is a layout tree, not
-  a CSS engine.
-- **PDF is not PDF/A or PDF/UA conformant.** No tagging, no accessibility
-  structure, no archival validation.
+  `@media`, masks, and shorthand properties. `filter` is supported but colour-only:
+  `brightness`, `contrast`, `saturate`, `grayscale`, `sepia`, `invert` and
+  `opacity`. Blur, `drop-shadow`, `hue-rotate` and `url()` are **reported as
+  skipped**, never silently dropped. This is a layout tree, not a CSS engine.
+- **PDF/A output has not been validated against a PDF/A conformance checker.**
+  `PdfOptions::pdfa` adds the parts a generator can satisfy by construction --
+  an output intent with a generated sRGB ICC profile, an XMP packet declaring
+  `pdfaid:part` 1 and conformance B, and a content-derived document identifier --
+  and tests verify each of those is present and well-formed. That is the whole
+  of the claim. A checker may still reject the output for something not visible
+  in the byte stream, such as a font program missing a required table. Run one
+  before relying on it for archival use.
+- **PDF/UA is not implemented and is not planned as a metadata addition.** It
+  requires tagged PDF: a structure tree, marked content on every text run,
+  `/Alt` on figures, `/Lang` on the document. That is a different
+  content-generation model, not extra metadata. And the point of PDF/UA is WCAG
+  conformance, which no validator can check -- a validator confirms tags are
+  present and nested, not that an alternative text is any good. Claiming it would
+  mean claiming accessibility this renderer cannot verify.
 - **No ecosystem yet.** No star history, no adopters, no battle-tested corpus.
   The determinism work exists precisely to make that corpus possible.
 - **The project is days old.** Every commit was made between 2026-09-29 and
@@ -579,7 +594,15 @@ Ordered by what most limits the project, not by what is easiest.
       flat-colour frames: WebP 2,974 B, APNG 3,636 B, GIF 1,901 B. WebP wins on
       APNG; GIF wins here because it is palette-indexed, which is the case it is
       built for.
-- [ ] **PDF/A + PDF/UA conformance.**
+- [x] **PDF/A-1b structural metadata**, behind `PdfOptions::pdfa`. Output intent
+      with a generated 500-byte sRGB ICC profile, XMP declaring `pdfaid:part` 1
+      and conformance B, and a content-derived trailer `/ID`. **Not validated
+      against a conformance checker** -- see Limitations.
+- [ ] **PDF/A conformance validation.** Running a real checker (veraPDF or
+      equivalent) in CI would turn "the metadata is present and well-formed"
+      into "the file is PDF/A". Nothing here asserts the latter.
+- [ ] **PDF/UA.** Tagged PDF. See Limitations for why it is not a metadata
+      addition.
 
 Shipped in v0.18: shaping and bidi with CJK fallback, grid and image nodes,
 gradients, PNG and SVG, animated GIF and APNG, lossless WebP, the full PDF

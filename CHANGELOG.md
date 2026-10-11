@@ -3,6 +3,83 @@
 All notable changes to Hikari. Versions match the workspace `version` and
 the `hikari-rs` facade crate.
 
+## v0.21.8 — PDF/A-1b structural metadata
+
+### Added
+- **`PdfOptions::pdfa`**, off by default. Emits an output intent with a
+  destination ICC profile, an XMP packet declaring `pdfaid:part` 1 and
+  `pdfaid:conformance` B, a content-derived trailer `/ID`, and
+  `/ViewerPreferences << /DisplayDocTitle true >>`.
+- **`hikari_pdf::pdfa`** — the pieces, usable and testable on their own:
+  `srgb_icc_profile`, `build_xmp`, `document_id`, `deflate`, `zlib_reader`.
+- A generated **500-byte sRGB ICC v2 display profile**, rather than a new
+  dependency or an embedded blob.
+
+### What is claimed, and what is not
+**This output has not been validated against a PDF/A conformance checker.** What
+the tests establish is the narrower claim: the output intent, the XMP packet and
+the document identifier are present, well-formed and reachable from the catalog.
+A checker may still reject the file for something not visible in the byte stream
+-- a font program missing a required table, an annotation flag, a colour space the
+part does not permit. Producing the right metadata and claiming conformance are
+different claims and only the first is supported. The README says so, and a test
+asserts the caveat is still there.
+
+### Cost
+7,575 bytes plain, 8,952 with PDF/A on a one-page card: **+1,377 bytes**, almost
+all of it the uncompressed ICC profile. Off by default for that reason.
+
+### Why the ICC profile is generated
+There is no sRGB profile in the crate and adding a dependency to ship ~3 KB of
+colour data would be a poor trade. `srgb_icc_profile` builds a minimal v2
+matrix/TRC display profile from Bradford-adapted sRGB colorants: `desc`, `wtpt`,
+`rXYZ`/`gXYZ`/`bXYZ`, `rTRC`/`gTRC`/`bTRC`, `cprt` and `mntr`. The `mntr` tag is
+what PDF/A checks for specifically, as distinct from the profile class in the
+header. A caller rendering for a specific press should supply that press's
+profile; this one exists because PDF/A requires *an* intent and refusing to write
+one would make the option unavailable.
+
+### Bugs the tests caught
+- **Every tag was missing its type signature.** The tag *table* listed all the
+  required fourccs with in-range offsets and sizes, so every table-level check
+  passed, while the tags themselves carried no `XYZ `/`curv`/`text` signature and
+  a reader could not interpret any of them. A lint reporting that a `kind` field
+  was never read is what exposed it -- worth taking "this is set but nothing
+  consumes it" seriously rather than deleting the field.
+- **The sRGB primaries were wrong twice.** Stored as three bytes each instead of
+  four-byte s15Fixed16 values, and with the green and blue rows mixed up, giving
+  a profile whose colorants summed to 0.65 luminance -- a colour 35% too dark.
+  Caught by a new test asserting the colorant Y values sum to the white point,
+  which is the property that actually defines a set of colorants.
+- **A trailer search found no trailer.** A test located `/ID` by searching for the
+  literal word `trailer`, which this version of `pdf-writer` does not emit. It
+  now anchors on `startxref` and looks backwards.
+- `pdf-writer` 0.12 exposes `OutputIntent` as a writer but has no constructor, so
+  it is written inline through the typed array. `Chunk::indirect` returns an
+  `Obj`, not a `Dict`, so the raw-object route needs `.dict()` first.
+
+### Why PDF/UA is absent
+PDF/UA requires tagged PDF: a structure tree, marked content on every text run,
+`/Alt` on figures, `/Lang`, correct heading nesting. That is a different
+content-generation model, not a metadata addition -- every paint operation would
+have to emit marked content paired with a tag. And the point of PDF/UA is WCAG
+conformance, which no validator can check: one can confirm the tags are present
+and correctly nested, not that an alternative text is any good. Shipping it would
+mean claiming accessibility this renderer cannot verify.
+
+### Tests
+35 new: 25 unit tests on the ICC profile, XMP and identifier, and 10 reading the
+generated PDF back to confirm the pieces are actually *in the document* -- a
+correctly-built profile that is never referenced satisfies every unit test and
+produces a file that is not PDF/A at all. One test asserts two different
+documents get different identifiers and another that the output is byte-stable,
+since the `/ID` is content-derived rather than clock-derived precisely so that
+both hold.
+
+301 tests pass, clippy clean, fmt clean, corpus and determinism unchanged.
+
+---
+
 ## v0.21.7 — a typed builder for trees
 
 ### Added
