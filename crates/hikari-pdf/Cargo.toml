@@ -17,7 +17,7 @@ hikari-rs-core.workspace = true
 pdf-writer.workspace = true
 flate2.workspace = true
 image.workspace = true
-ttf-parser = { version = "0.21" }
+skrifa.workspace = true
 allsorts.workspace = true
 
 [lints]

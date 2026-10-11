@@ -10,6 +10,7 @@
 //! v1 limits, stated openly: solid fills only (gradients use their first
 //! stop), mark offsets (`x_offset`) ignored, no auto-pagination across pages
 //! (Step 6b). Fonts subset to used glyphs (allsorts, PDF profile).
+use skrifa::MetadataProvider;
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -155,6 +156,15 @@ struct DocFont {
     /// Full PostScript name (`XXXXXX+Family` once subsetted).
     name: String,
     bytes: &'static [u8],
+    /// The parsed font, borrowed from `bytes`.
+    ///
+    /// Held rather than reparsed per lookup. This used to call
+    /// `ttf_parser::Face::parse` on every `has`, `gid_of` and `exact_width`,
+    /// which meant re-reading the whole cmap for every single glyph of every
+    /// page -- and `exact_width` runs per character, so a dense table paid for
+    /// it hundreds of times. `FontRef` borrows `bytes`, which is `'static`, so
+    /// this costs a pointer and nothing more.
+    parsed: skrifa::FontRef<'static>,
     upem: f32,
     ascender: f32,
     descender: f32,
@@ -410,7 +420,9 @@ impl PdfDoc {
                 Ok(b) => b,
                 Err(_) => continue,
             };
-            let face = match ttf_parser::Face::parse(&subset, 0) {
+            // The subset is freshly built and owned here, so the `FontRef`
+            // borrows it for the rest of this loop body only.
+            let face = match skrifa::FontRef::new(&subset) {
                 Ok(f) => f,
                 Err(_) => continue,
             };
@@ -424,9 +436,9 @@ impl PdfDoc {
             let mut remap = HashMap::new();
             let mut ok = true;
             for (ch, orig) in &chars {
-                match face.glyph_index(*ch) {
+                match face.charmap().map(*ch) {
                     Some(new) => {
-                        let new_gid = u32::from(new.0);
+                        let new_gid = new.to_u32();
                         remap.insert(*orig, new_gid);
                         if let Some(w) = font.widths.get(orig) {
                             widths.insert(new_gid, *w);
@@ -844,27 +856,57 @@ impl DocFont {
         base_name: &'static str,
         bytes: &'static [u8],
     ) -> Result<Self, Error> {
-        let face = ttf_parser::Face::parse(bytes, 0).map_err(|e| Error::Font(format!("{e:?}")))?;
-        let upem = face.units_per_em() as f32;
-        let bbox = face.global_bounding_box();
-        let cap = face
-            .glyph_index('H')
-            .and_then(|g| face.glyph_bounding_box(g))
-            .map(|b| b.y_max as f32)
-            .unwrap_or(face.ascender() as f32 * 0.7);
+        let parsed = skrifa::FontRef::new(bytes)
+            .map_err(|e| Error::Font(format!("{base_name}: not a usable font: {e:?}")))?;
+
+        // Ask for metrics at exactly the design size, so every value comes back
+        // in font units. `Metrics` is scaled by `size / units_per_em`, and this
+        // code divides by `upem` again further down; asking for a different size
+        // here would quietly square that factor instead of failing.
+        // `Metrics.units_per_em` is not affected by the requested size, so this
+        // first read is only to learn the em square.
+        let upem = parsed
+            .metrics(
+                skrifa::instance::Size::new(1.0),
+                skrifa::instance::LocationRef::default(),
+            )
+            .units_per_em as f32;
+        if upem <= 0.0 {
+            return Err(Error::Font(format!("{base_name}: units_per_em is zero")));
+        }
+        // Now ask at exactly the design size, so every other value comes back in
+        // font units. Metrics are scaled by `size / units_per_em`, and this code
+        // divides by `upem` again further down; asking for a different size here
+        // would quietly square that factor instead of failing.
+        let size = skrifa::instance::Size::new(upem);
+        let location = skrifa::instance::LocationRef::default();
+        let m = parsed.metrics(size, location);
+
+        // The PDF `/FontDescriptor` needs a real global bounding box. A font
+        // without one is legal but rare, so fall back to the ascender rather
+        // than emitting NaNs into the descriptor.
+        let bbox = m.bounds;
+        let cap = m
+            .cap_height
+            .or_else(|| {
+                parsed
+                    .charmap()
+                    .map('H')
+                    .and_then(|g| parsed.glyph_metrics(size, location).bounds(g))
+                    .map(|b| b.y_max)
+            })
+            .unwrap_or(m.ascent * 0.7);
         Ok(Self {
             tag,
             name: base_name.to_owned(),
             bytes,
+            parsed,
             upem,
-            ascender: face.ascender() as f32,
-            descender: face.descender() as f32,
-            bbox: [
-                bbox.x_min as f32,
-                bbox.y_min as f32,
-                bbox.x_max as f32,
-                bbox.y_max as f32,
-            ],
+            ascender: m.ascent,
+            descender: m.descent,
+            bbox: bbox.map_or([0.0, m.descent, m.ascent, 0.0], |b| {
+                [b.x_min, b.y_min, b.x_max, b.y_max]
+            }),
             cap_height: cap,
             widths: BTreeMap::new(),
             unicodes: BTreeMap::new(),
@@ -874,26 +916,29 @@ impl DocFont {
     }
 
     fn has(&self, ch: char) -> bool {
-        ttf_parser::Face::parse(self.bytes, 0)
-            .ok()
-            .and_then(|f| f.glyph_index(ch))
-            .is_some()
+        self.parsed.charmap().map(ch).is_some()
     }
 
     fn gid_of(&self, ch: char) -> Result<u32, Error> {
-        ttf_parser::Face::parse(self.bytes, 0)
-            .map_err(|e| Error::Font(format!("{e:?}")))?
-            .glyph_index(ch)
-            .map(|g| u32::from(g.0))
+        self.parsed
+            .charmap()
+            .map(ch)
+            .map(|g| g.to_u32())
             .ok_or_else(|| Error::Asset(format!("no glyph for {ch:?}")))
     }
 
     /// Exact advance in thousandths for this font's glyph.
     fn exact_width(&self, ch: char) -> f32 {
-        let face = ttf_parser::Face::parse(self.bytes, 0).expect("parsed before");
-        face.glyph_index(ch)
-            .and_then(|g| face.glyph_hor_advance(g))
-            .map(|a| f32::from(a) / self.upem * 1000.0)
+        let size = skrifa::instance::Size::new(self.upem);
+        self.parsed
+            .charmap()
+            .map(ch)
+            .and_then(|g| {
+                self.parsed
+                    .glyph_metrics(size, skrifa::instance::LocationRef::default())
+                    .advance_width(g)
+            })
+            .map(|a| a / self.upem * 1000.0)
             .unwrap_or(1000.0)
     }
 }

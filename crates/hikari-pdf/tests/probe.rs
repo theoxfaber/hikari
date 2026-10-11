@@ -1,3 +1,5 @@
+use skrifa::MetadataProvider;
+
 #[test]
 fn probe_subset_profiles() {
     use allsorts::binary::read::ReadScope;
@@ -8,7 +10,7 @@ fn probe_subset_profiles() {
     // All currently-used glyphs: collect from representative strings.
     let mut gids = std::collections::BTreeSet::new();
     gids.insert(0u16);
-    let face = ttf_parser::Face::parse(bytes, 0).unwrap();
+    let font = skrifa::FontRef::new(bytes).unwrap();
     let mut chars = std::collections::BTreeSet::new();
     for s in [
         "Hello from Hikari",
@@ -16,8 +18,8 @@ fn probe_subset_profiles() {
         "0123456789.,:$%!?\u{2713}\u{2192}",
     ] {
         for ch in s.chars() {
-            if let Some(g) = face.glyph_index(ch) {
-                gids.insert(g.0);
+            if let Some(g) = font.charmap().map(ch) {
+                gids.insert(g.to_u32() as u16);
                 chars.insert(ch);
             }
         }

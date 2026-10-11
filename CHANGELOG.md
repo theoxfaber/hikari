@@ -3,6 +3,72 @@
 All notable changes to Hikari. Versions match the workspace `version` and
 the `hikari-rs` facade crate.
 
+## v0.21.3 — PDF font embedding moved off ttf-parser; no unmaintained deps remain
+
+### Changed
+- **PDF font embedding and metrics now read through `skrifa`.** This was the
+  last direct user of `ttf-parser`, and the change that actually retired
+  RUSTSEC-2026-0192.
+
+  That advisory could not have been cleared by any partial swap, which is why it
+  survived the previous two releases. `rustybuzz` and `fontdue` each depended on
+  `ttf-parser` themselves, so replacing our own call sites left the crate in the
+  tree regardless. It took all three replacements — `harfrust` for shaping,
+  `skrifa` for glyph rasterization, and `skrifa` again here.
+
+- `DocFont` now holds a parsed `FontRef` instead of reparsing on every lookup.
+  `has`, `gid_of` and `exact_width` each called `ttf_parser::Face::parse`,
+  which meant re-reading the whole cmap for every glyph of every page.
+  `exact_width` runs per character, so a dense table paid for it hundreds of
+  times. The parsed face borrows `bytes`, which is `'static`, so this costs a
+  pointer.
+
+### `ttf-parser` is gone from the tree entirely
+
+Zero occurrences in `Cargo.lock` and zero in any manifest. `deny.toml` now
+ignores **no** advisories, and `unmaintained = "all"` stays on as a gate rather
+than an exception: the next crate that declares itself unmaintained fails the
+build instead of needing a written justification.
+
+### Verified byte-identical, not assumed
+
+Nothing in the suite would have noticed if PDF metrics had drifted. The corpus
+digests cover PNG and SVG; the determinism card does not cover PDF; and a wrong
+advance width does not look wrong — the text renders, just spaced slightly off.
+
+So the `/W` array and the `/FontDescriptor` were extracted from a real PDF and
+compared across the migration. **Identical**: every width to the last decimal
+place, `/Ascent 1901`, `/Descent -483`, `/CapHeight 1493`, `/FontBBox
+[-2090 -948 3673 2524]`, and a byte-identical 201,711-byte file.
+
+### Tests
+Five new in `crates/hikari/tests/pdf_font_metrics.rs`, pinning the width array,
+the descriptor fields, and the invariant that widths do not move with page size.
+
+One of them asserts the *opposite* of what it first claimed. It assumed an
+unmapped character would be skipped gracefully; the renderer actually fails with
+`no glyph for ... (install a CJK fallback font)`. That is the better contract — a
+PDF with one silently mis-spaced glyph among a page of correct ones is far worse
+to debug than a clear error — so the test now pins the error.
+
+179 tests pass, clippy clean, fmt clean, `cargo deny` clean with no advisories.
+
+### Where the unmaintained-dependency work landed
+
+| | before | after |
+|---|---|---|
+| advisories ignored | 2 | 0 |
+| font parsers in the tree | `ttf-parser` + `read-fonts` | `read-fonts` |
+| `rustybuzz` / `ttf-parser` / `fontdue` | present | all gone |
+| render, 1200x630 banner | 4.38 ms | 3.52 ms |
+| WASM, unoptimised | 2.95 MB | 3.51 MB |
+
+The WebAssembly cost is real and stated plainly: 560 KB for a maintained shaper,
+a maintained rasterizer, and no duplicated parser. `wasm-opt` should recover some
+of it, but no size budget is enforced in CI yet.
+
+---
+
 ## v0.21.2 — fontdue replaced by skrifa + tiny-skia
 
 ### Changed

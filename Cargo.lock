@@ -639,7 +639,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hikari-rs"
-version = "0.21.2"
+version = "0.21.3"
 dependencies = [
  "criterion",
  "ed25519-dalek",
@@ -655,7 +655,7 @@ dependencies = [
 
 [[package]]
 name = "hikari-rs-animate"
-version = "0.21.2"
+version = "0.21.3"
 dependencies = [
  "hikari-rs-core",
  "image",
@@ -664,7 +664,7 @@ dependencies = [
 
 [[package]]
 name = "hikari-rs-core"
-version = "0.21.2"
+version = "0.21.3"
 dependencies = [
  "harfrust",
  "hex",
@@ -681,7 +681,7 @@ dependencies = [
 
 [[package]]
 name = "hikari-rs-node"
-version = "0.21.2"
+version = "0.21.3"
 dependencies = [
  "ed25519-dalek",
  "hikari-rs",
@@ -692,19 +692,19 @@ dependencies = [
 
 [[package]]
 name = "hikari-rs-pdf"
-version = "0.21.2"
+version = "0.21.3"
 dependencies = [
  "allsorts",
  "flate2",
  "hikari-rs-core",
  "image",
  "pdf-writer",
- "ttf-parser",
+ "skrifa",
 ]
 
 [[package]]
 name = "hikari-rs-raster"
-version = "0.21.2"
+version = "0.21.3"
 dependencies = [
  "flate2",
  "hikari-rs-core",
@@ -715,7 +715,7 @@ dependencies = [
 
 [[package]]
 name = "hikari-rs-svg"
-version = "0.21.2"
+version = "0.21.3"
 dependencies = [
  "base64",
  "hikari-rs-core",
@@ -723,7 +723,7 @@ dependencies = [
 
 [[package]]
 name = "hikari-rs-wasm"
-version = "0.21.2"
+version = "0.21.3"
 dependencies = [
  "hikari-rs",
  "serde_json",
@@ -1468,12 +1468,6 @@ name = "tinyvec"
 version = "1.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
-
-[[package]]
-name = "ttf-parser"
-version = "0.21.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c591d83f69777866b9126b24c6dd9a18351f177e49d625920d19f989fd31cf8"
 
 [[package]]
 name = "typenum"

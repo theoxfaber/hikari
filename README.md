@@ -449,12 +449,12 @@ Stated plainly, because a limitations section that hedges is worse than none.
   reaches a *system* font, so a render may differ between machines — the
   determinism guarantee below covers every script the embedded faces cover, and
   CJK only when this feature is on.
-- **`ttf-parser` is still declared unmaintained** (RUSTSEC-2026-0192). One direct
-  user is left, `hikari-pdf`, for font embedding and metrics. The shaper reads
-  through `harfrust` and the rasterizer through `skrifa`, both on `read-fonts`,
-  so there is now a single font parser in the tree where there were two. It is
-  ignored in `deny.toml` with that reason written down rather than tolerated
-  silently. See [Roadmap](#roadmap).
+- **No dependency is declared unmaintained.** `rustybuzz`, `ttf-parser` and
+  `fontdue` are all gone; `deny.toml` ignores nothing and `unmaintained = "all"`
+  stays on as a gate, so the next crate that declares itself unmaintained fails
+  the build instead of needing a written justification. What it cost is recorded
+  in the changelog: +560 KB of WebAssembly for a maintained shaper and
+  rasterizer, and about 20% *faster* rendering.
 - **CSS coverage is narrow by design.** The `Style` surface is about two dozen
   fields: box model, `display` (`Flex`/`Grid`/`Block`), `dir`, `justify`,
   `align`, `gap`, `grow`, `absolute` with `left`/`top`, `radius`, `border`,
@@ -503,10 +503,14 @@ Ordered by what most limits the project, not by what is easiest.
       top edge instead pushes every glyph down by its own height, which still
       renders a plausible image with a plausible ink count -- so it is pinned by
       tests now, not by a digest.
-- [ ] **Move PDF font embedding off `ttf-parser`.** The last direct user of the
-      unmaintained parser, and what actually retires RUSTSEC-2026-0192. It is a
-      self-contained job: PDF font objects need glyph metrics, widths and
-      embedded subsets, none of which the rendering path uses.
+- [x] **Moved PDF font embedding off `ttf-parser`.** This was the last direct
+      user and the change that actually retired RUSTSEC-2026-0192 — that
+      advisory could not be cleared by any partial swap, because `rustybuzz` and
+      `fontdue` each pulled it in transitively. It took all three replacements.
+      PDF font objects now read metrics through `skrifa`; the `/W` width array
+      and `/FontDescriptor` are byte-identical to what `ttf-parser` produced, and
+      are now pinned by tests because nothing else in the suite would notice them
+      changing.
 - [x] **Bundle OFL Hebrew and CJK-covering fonts.** A layout-preserving subset
       of Noto Sans Hebrew is always bundled (57 KB), and Noto Sans SC is
       available behind the opt-in `bundled-cjk` feature (9,968,236 B, fetched by
