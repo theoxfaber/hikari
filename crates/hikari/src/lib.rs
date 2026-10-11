@@ -9,6 +9,7 @@
 //! ```
 
 pub use hikari_animate::{count_gif_frames, encode_apng, encode_gif, AnimFrame};
+pub use hikari_core::assets;
 pub use hikari_core::css;
 pub use hikari_core::{
     balance_text, builtin_bytes, compute_layout, fit_font_size, font_bytes, font_entry,

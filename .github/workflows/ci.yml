@@ -152,9 +152,67 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      # A smoke run, not a gate: criterion on shared CI runners is far too
-      # noisy to assert on. This catches benches that stop compiling or hang.
-      - run: cargo bench -p hikari-rs --bench render -- --warm-up-time 1 --measurement-time 2 --sample-size 10
+      # A smoke run, not a gate: criterion on shared CI runners is far too noisy
+      # to assert on a single measurement. This catches benches that stop
+      # compiling or hang.
+      #
+      # It does one thing a bare smoke run did not: it prints criterion's change
+      # column so a regression is visible in the log even though it is not
+      # enforced. `--save-baseline` writes criterion's own state under `target`,
+      # so a run in CI has nothing to compare against on its first execution --
+      # but from the second onwards the log shows `change: +x.x%` per benchmark,
+      # which turns "someone should look at this" into "someone did".
+      - name: run render benchmarks
+        run: |
+          cargo bench -p hikari-rs --bench render -- \
+            --warm-up-time 1 --measurement-time 2 --sample-size 10 --save-baseline ci
+      - name: summarise
+        run: |
+          {
+            echo "### render benchmark"
+            echo ""
+            echo 'Criterion reports a change against the previous run in the job log.'
+            echo "Shared runners are noisy, so this is a signal, not a gate."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  wasm-size:
+    name: wasm size budget
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      # A budget, not a smoke test. The WASM bundle grew 2.95 MB -> 3.51 MB over
+      # three dependency migrations and nothing noticed, because "it compiles" is
+      # not a statement about size. The README quotes a figure that had quietly
+      # stopped being true.
+      #
+      # Unoptimised on purpose: this is the raw `cargo build --release` output,
+      # which is what the README quotes and what a reviewer can reproduce without
+      # installing wasm-opt. Adding wasm-opt would make the number better and
+      # less checkable, and the budget is about catching *unplanned* growth.
+      - name: build wasm
+        run: cargo build --release -p hikari-rs-wasm --target wasm32-unknown-unknown
+      - name: check against budget
+        run: |
+          set -euo pipefail
+          WASM=$(find target/wasm32-unknown-unknown/release -maxdepth 1 -name '*.wasm' -print -quit)
+          test -n "$WASM" || { echo "no wasm produced"; exit 1; }
+          BYTES=$(wc -c < "$WASM" | tr -d ' ')
+          # 3.75 MB. The measured size is 3.51 MB, so this leaves roughly 250 KB of
+          # headroom: enough for an intended change, little enough that a
+          # dependency that quietly adds half a megabyte fails.
+          BUDGET=$((3750 * 1024))
+          MB=$(awk "BEGIN {printf \"%.2f\", $BYTES / 1048576}")
+          echo "wasm: $MB ($BYTES bytes), budget 3.75 MB"
+          if [ "$BYTES" -gt "$BUDGET" ]; then
+            echo "::error::wasm grew to $MB, over the 3.75 MB budget."
+            echo "If this was intended, raise the budget in .github/workflows/ci.yml"
+            echo "and update the figure quoted in README.md."
+            exit 1
+          fi
 
   audit:
     name: supply chain

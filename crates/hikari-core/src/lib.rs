@@ -16,6 +16,7 @@ pub use font::{
 };
 
 /// A CSS subset parser and an HTML-ish front end.
+pub mod assets;
 pub mod css;
 
 // Both modules below contain only `#[test]` items, so compiling them in a
@@ -1333,7 +1334,17 @@ pub enum Node {
     /// Decoded-at-paint image (PNG/JPEG bytes).
     Image {
         /// Encoded image bytes.
+        ///
+        /// Empty when the node was declared with a `src` name instead; see
+        /// [`crate::assets::Assets`] for resolving one into bytes.
         bytes: Vec<u8>,
+        /// Asset name to resolve bytes from, or `None` when the bytes are inline.
+        ///
+        /// Kept alongside `bytes` rather than instead of it, so a tree that is
+        /// fully resolved still renders on its own and needs no second pass. A
+        /// resolved tree simply has both, and `bytes` wins.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        src: Option<String>,
         /// Fill behavior.
         fit: ImgFit,
         /// Box style.
@@ -1378,11 +1389,27 @@ impl Node {
         }
     }
 
+    /// An image node whose bytes come from an [`crate::assets::Assets`] entry.
+    ///
+    /// Takes a name rather than bytes so a tree can be declared before anything
+    /// is fetched. The name is only a reference: rendering an unresolved tree
+    /// reports a missing asset rather than painting a blank box.
+    #[must_use]
+    pub fn image_ref(src: &str, style: Style) -> Self {
+        Self::Image {
+            bytes: Vec::new(),
+            src: Some(src.to_owned()),
+            fit: ImgFit::Cover,
+            style,
+        }
+    }
+
     /// Image constructor (`fit` defaults to cover).
     #[must_use]
     pub fn image(bytes: Vec<u8>, style: Style) -> Self {
         Self::Image {
             bytes,
+            src: None,
             fit: ImgFit::Cover,
             style,
         }
@@ -1522,7 +1549,9 @@ fn read_back(
                 Vec::new(),
             )
         }
-        Node::Image { bytes, fit, style } => (
+        Node::Image {
+            bytes, fit, style, ..
+        } => (
             style.clone(),
             None,
             style.link.clone(),

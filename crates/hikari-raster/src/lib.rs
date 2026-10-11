@@ -520,7 +520,7 @@ fn paint_box_plain(node: &Placed, pix: &mut Pixmap, dx: f32, dy: f32) -> Result<
             );
         }
     }
-    if let Some(Media::Image { bytes, fit }) = &node.media {
+    if let Some(Media::Image { bytes, fit, .. }) = &node.media {
         draw_image(bytes, *fit, node, pix, x, y, blend)?;
     }
     // Inset shadows paint after the box's own background but before its content,

@@ -3,6 +3,58 @@
 All notable changes to Hikari. Versions match the workspace `version` and
 the `hikari-rs` facade crate.
 
+## v0.21.5 — assets, a WASM size budget, benchmark visibility
+
+### Added
+- **`hikari::assets::Assets`** -- resolve named image references into bytes before
+  a render. `Node::image_ref` declares a name; `Assets::resolve` fills it in.
+- **`render_png_with_assets` is not needed, and that is the design.** The resolver
+  returns a tree with bytes inline; the renderer is not involved at any point, so
+  it cannot grow a fetch, a cache or a timeout by accident. The "a render makes no
+  network calls" property is structural rather than a promise.
+- **A 3.75 MB WASM size budget in CI**, against a measured 3.52 MB.
+- **Criterion saves a baseline and reports changes in the job log** instead of
+  discarding the run.
+
+### Why no fetch inside the renderer
+A render that can fail because a server is down is not deterministic, and the
+determinism guarantee here is byte-identical output from the same input. A
+renderer that blocks on I/O has no backpressure, so 200 cards would issue 200
+uncoordinated fetches. And a fetch error has nowhere to go mid-paint, so it would
+have to become a blank box -- the hardest kind of failure to diagnose. The caller
+owns the HTTP client, the timeout, the retry policy and the cache.
+
+### An unresolved reference is an error, not a blank box
+A missing image that renders as an empty box is indistinguishable from one that is
+genuinely transparent, and finding that out by looking at the output is the worst
+way to find out. `resolve` fails naming the asset; `resolve_lenient` leaves the
+node referenced and returns every missing name at once, which is what a preflight
+wants. Its first implementation returned the original tree on any miss -- correct,
+and the opposite of what "lenient" should mean, since it threw away every asset
+that *was* found. A test now pins the useful behaviour.
+
+### Fixed, found by the tests written alongside it
+`resolve_lenient` discarded partial results, as above. Two test expectations were
+wrong and the code was right: an inline three-byte image was asserted to equal a
+one-byte slice.
+
+### Notes on the CI work
+- The size budget is on the **unoptimised** output on purpose. That is what the
+  README quotes and what a reviewer can reproduce without installing `wasm-opt`;
+  adding it would make the number better and less checkable.
+- A first draft of the benchmark step globbed criterion's internal directory
+  layout to build a summary table. That layout is not part of criterion's API and
+  the paths were a guess, so it was replaced with a link to the log, which is the
+  part that is actually reliable.
+- The WASM figure had already drifted 2.95 MB to 3.51 MB across three dependency
+  migrations. "It compiles" is not a statement about size, and this is the one
+  place the number was written down -- which is exactly why it should not be a
+  number only a human reads.
+
+224 tests pass, clippy clean, fmt clean.
+
+---
+
 ## v0.21.4 — colour filters
 
 ### Added

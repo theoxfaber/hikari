@@ -377,12 +377,18 @@ tree is pure Rust with no C zlib anywhere (`flate2/rust_backend`, `zlib-rs`),
 so nothing needs a cross-compiled sysroot.
 
 An unoptimised `cargo build --release --target wasm32-unknown-unknown` is
-3.51 MB, measured. That went up by 340 KB when the shaper moved to `harfrust`
+3.52 MB, measured. That went up by 340 KB when the shaper moved to `harfrust`
 plus `read-fonts`; the trade is a maintained shaper for the size, and `wasm-opt`
-should claw some of it back. No size budget is enforced in CI, so the figure can
-drift unnoticed -- tracking one is on the roadmap. The playground bundle is
-rebuilt in CI rather than committed so it can never drift from the library it
-demonstrates.
+should claw some of it back.
+
+**CI enforces a 3.75 MB budget on that figure.** The bundle had already drifted
+2.95 MB to 3.51 MB across three dependency migrations without anything noticing,
+because "it compiles" is not a statement about size and this paragraph is the one
+place the number was written down. The budget is on the unoptimised output on
+purpose: it is what the figure above quotes, and it is reproducible by anyone
+without installing `wasm-opt`. If a change pushes past it, CI fails and says
+which of the two places to update. The playground bundle is rebuilt in CI rather
+than committed so it can never drift from the library it demonstrates.
 
 ---
 
@@ -545,12 +551,20 @@ Ordered by what most limits the project, not by what is easiest.
       documented rather than half-implemented. `lightningcss` was measured and
       rejected: it reaches `getrandom` 0.3.4, which is a hard `compile_error!` on
       `wasm32-unknown-unknown`, so it breaks the WebAssembly build outright.
-- [ ] **A remote-asset preload helper.** Fetching images is a network call, and
-      this library makes none, so this has to be opt-in and explicit rather than
-      something a render triggers on its own.
-- [ ] **Criterion regression gates.** CI currently smoke-runs benchmarks;
-      shared runners are too noisy to assert on timings, so this needs a
-      dedicated runner.
+- [x] **A remote-asset preload helper.** `hikari::assets::Assets` resolves named
+      references into bytes *before* a render. The renderer is not involved and
+      cannot learn that assets exist, so it cannot grow a fetch, a cache or a
+      timeout by accident -- the "a render makes no network calls" property is
+      structural, not a promise. An unresolved reference is an error naming the
+      asset, never a blank box; `resolve_lenient` lists everything still missing
+      in one pass for a preflight. Nothing is required: a tree with no assets
+      renders exactly as before.
+- [x] **Criterion regression gates.** CI saves a criterion baseline and reports
+      the change column in the job log, so a regression is visible without
+      anything asserting on a noisy shared runner. A hard gate still needs a
+      dedicated runner and is not claimed here.
+- [x] **A WASM size budget in CI.** 3.75 MB against a measured 3.52 MB. See the
+      WASM section above.
 - [ ] **Animated WebP** encoding, and PDF/A + PDF/UA conformance.
 
 Shipped in v0.18: shaping and bidi with CJK fallback, grid and image nodes,

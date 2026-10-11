@@ -1191,7 +1191,7 @@ fn paint_image(
     doc: &PdfDoc,
 ) -> Result<(), Error> {
     let (bytes, fit) = match &node.media {
-        Some(Media::Image { bytes, fit }) => (bytes, *fit),
+        Some(Media::Image { bytes, fit, .. }) => (bytes, *fit),
         _ => return Ok(()),
     };
     let key = hash_bytes(bytes);
