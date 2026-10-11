@@ -8,7 +8,10 @@
 //! assert_eq!(&png[..8], &[137, 80, 78, 71, 13, 10, 26, 10]);
 //! ```
 
-pub use hikari_animate::{count_gif_frames, encode_apng, encode_gif, AnimFrame};
+pub use hikari_animate::{
+    count_gif_frames, count_webp_frames, encode_apng, encode_gif, encode_webp_animation,
+    AnimBackground, AnimFrame, Loop, MAX_CANVAS,
+};
 pub use hikari_core::assets;
 pub use hikari_core::css;
 pub use hikari_core::{
@@ -144,6 +147,23 @@ pub fn render_animation_apng(frames: &[(Node, u32)], w: u32, h: u32) -> Result<V
         .map(|(rgba, duration_ms)| AnimFrame { rgba, duration_ms })
         .collect();
     encode_apng(&anim, w, h)
+}
+
+/// Render + encode an animated WebP.
+///
+/// Frames are `(tree, duration_ms)`; output loops forever.
+///
+/// Lossless, and smaller than the equivalent APNG for most content, which is the
+/// usual reason to reach for this over [`render_animation_apng`]. The canvas is
+/// capped at [`MAX_CANVAS`] px per side, as the format requires; a larger render
+/// is an error rather than a silently clipped file.
+pub fn render_animation_webp(frames: &[(Node, u32)], w: u32, h: u32) -> Result<Vec<u8>, Error> {
+    let raw = render_animation_rgba(frames, w, h)?;
+    let anim: Vec<AnimFrame> = raw
+        .into_iter()
+        .map(|(rgba, duration_ms)| AnimFrame { rgba, duration_ms })
+        .collect();
+    encode_webp_animation(&anim, w, h, Loop::Forever, AnimBackground::default())
 }
 
 /// Render one [`Node`] per page to PDF bytes.

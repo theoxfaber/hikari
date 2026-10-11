@@ -2,8 +2,15 @@
 //! Animated encoders (Pro): straight-alpha RGBA frames -> GIF bytes.
 //!
 //! Frames are rendered in parallel by the facade and encoded here.
-//! APNG/WebP encoders are next; GIF ships first because the whole path is
-//! pure Rust with no system dependencies.
+//! See [`webp_anim`] for the animated WebP container, which is hand-written
+//! because no Rust encoder in the tree produces one.
+
+mod webp_anim;
+
+#[cfg(test)]
+mod webp_anim_tests;
+
+pub use webp_anim::{count_webp_frames, encode_webp_animation, AnimBackground, Loop, MAX_CANVAS};
 
 use hikari_core::Error;
 use image::codecs::gif::{GifEncoder, Repeat};

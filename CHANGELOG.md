@@ -3,6 +3,78 @@
 All notable changes to Hikari. Versions match the workspace `version` and
 the `hikari-rs` facade crate.
 
+## v0.21.6 — animated WebP
+
+### Added
+- **`render_animation_webp`** and `encode_webp_animation`, alongside the existing
+  animated GIF and APNG paths. Lossless, full-canvas frames, `VP8X` + `ANIM` +
+  `ANMF` container, animated WebP's usual "no cross-frame optimisation" cost --
+  each frame stands alone, so a damaged frame costs one frame rather than the
+  rest of the animation.
+- `count_webp_frames` for the decoder round trip.
+- `Loop`, `AnimBackground` and `MAX_CANVAS` (16383 px, the format's own limit).
+
+### Why it is hand-written
+`image-webp` has no animation support in either direction, so there is nothing to
+call. The frame *bitstreams* are delegated to `image`'s still lossless encoder
+and the container written here. That split is safe for one specific reason worth
+stating: `WebPEncoder::new_lossless` emits exactly one `VP8L ` chunk after the
+12-byte `RIFF`-size-`WEBP` prologue, so dropping the prologue leaves a valid
+chunk. The code asserts that prologue's shape rather than assuming it, so a
+future `image` release that starts adding an `EXIF` chunk turns into an error
+instead of a file that decodes to one frame.
+
+### Measured, 120x90, four flat-colour frames with text
+| format | bytes |
+| --- | --- |
+| animated WebP | 2,974 |
+| APNG | 3,636 |
+| animated GIF | 1,901 |
+
+WebP beats APNG by 18%. **GIF is smaller here**, which the README would rather
+not leave out: GIF is palette-indexed, so flat colour is exactly the case it
+wins, and the gap closes or reverses as soon as there are gradients or alpha.
+A test asserts WebP beats APNG and nothing asserts it beats GIF.
+
+### Two details of `ANMF` that are easy to get backwards
+Both were written the other way round here first, and both produced a file that
+hashed consistently, passed every structural check, and decoded to a single frame
+of the wrong size:
+
+1. **The 16 bytes of frame geometry come before the frame bitstream**, not after.
+2. **`Frame X` and `Frame Y` are the coordinate divided by 2**, not by 3.
+
+The specification's `ANMF` diagram is unambiguous about both. The decoder round
+trip is what catches them; a byte-level test written against the writer agrees
+with the writer either way, which is the whole reason every test in
+`webp_anim_tests` decodes.
+
+### Blend flag set, not clear
+Every frame here is a whole canvas, so the `ANMF` B flag is set to "do not
+blend". Alpha-blending would also be defensible, but it is not free: the
+specification's blend formula recomputes colour as
+`(src*A + dst*A*(1-A)) / blendA`, which loses a unit in integer division -- a
+solid red frame came back as `254, 0, 0`. Overwriting preserves the frame byte
+for byte, which is what a lossless encoder should do and what lets the round trip
+be asserted exactly rather than to within a tolerance.
+
+### Fixed, in tests written alongside it
+A clamp test asserted that a one-hour duration was clamped to 24 bits. An hour
+fits in 24 bits comfortably, so nothing clamped; the test used `u32::MAX`
+instead, and a companion test now pins that an hour survives unchanged so the
+clamp cannot become "clamp everything to something".
+
+### Tests
+20 new: 17 in `hikari-animate` covering the container, every chunk's word
+alignment, the `VP8X` flags, odd canvas sizes, transparency, single-frame
+degeneracy and rejected input; 3 end-to-end through the real renderer, because a
+frame that renders through the pipeline but comes out empty is a failure no
+hand-built frame buffer would ever produce.
+
+242 tests pass, clippy clean, fmt clean, corpus and determinism unchanged.
+
+---
+
 ## v0.21.5 — assets, a WASM size budget, benchmark visibility
 
 ### Added

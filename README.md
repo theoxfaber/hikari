@@ -565,7 +565,14 @@ Ordered by what most limits the project, not by what is easiest.
       dedicated runner and is not claimed here.
 - [x] **A WASM size budget in CI.** 3.75 MB against a measured 3.52 MB. See the
       WASM section above.
-- [ ] **Animated WebP** encoding, and PDF/A + PDF/UA conformance.
+- [x] **Animated WebP** encoding. `render_animation_webp`, lossless, next to the
+      existing GIF and APNG paths. The container is written here -- no Rust
+      encoder in the tree produces one -- while the frame bitstreams are
+      delegated to the still lossless encoder. Measured at 120x90 with four
+      flat-colour frames: WebP 2,974 B, APNG 3,636 B, GIF 1,901 B. WebP wins on
+      APNG; GIF wins here because it is palette-indexed, which is the case it is
+      built for.
+- [ ] **PDF/A + PDF/UA conformance.**
 
 Shipped in v0.18: shaping and bidi with CJK fallback, grid and image nodes,
 gradients, PNG and SVG, animated GIF and APNG, lossless WebP, the full PDF
