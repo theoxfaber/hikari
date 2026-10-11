@@ -1,15 +1,21 @@
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 
 const require = createRequire(import.meta.url);
 const hk = require('./hikari-node.node');
-const { mkdirSync } = require('node:fs');
 
+// `fileURLToPath`, not `URL.pathname`. On Windows `.pathname` returns
+// `/D:/a/hikari/hikari/npm/` -- a path with a leading slash in front of a drive
+// letter -- and joining an output file onto it produced
+// `D:\D:\a\hikari\hikari\npm\og-node.png`. The failure only appeared once
+// the node matrix included Windows, for the same reason the macOS link error
+// did: the crate had only ever run on one platform.
 const outDir = process.env.HIKARI_EXAMPLE_OUT
   ? (mkdirSync(process.env.HIKARI_EXAMPLE_OUT, { recursive: true }),
     process.env.HIKARI_EXAMPLE_OUT)
-  : new URL('.', import.meta.url).pathname;
+  : fileURLToPath(new URL('.', import.meta.url));
 
 // Exercise the package entry point too, not just the raw binding. These were
 // separate for a while and the wrapper quietly omitted renderWebpSync, which

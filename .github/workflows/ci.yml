@@ -439,14 +439,24 @@ jobs:
         run: |
           set -uo pipefail
           docker pull verapdf/cli:v1.30.3
+          # `2>&1` matters. veraPDF writes its report to stderr, so a plain
+          # `| tee` captured nothing and the job reported "did not confirm
+          # conformance" for a run that had produced no report at all. Those two
+          # failures are different and conflating them sends whoever reads the log
+          # looking for a conformance problem that is not there.
           docker run --rm -v "$PWD:/work" verapdf/cli:v1.30.3 \
-            --format text --flavour 1b /work/pdfa-fixture.pdf | tee verapdf-report.txt
+            --format text --flavour 1b /work/pdfa-fixture.pdf 2>&1 | tee verapdf-report.txt
           status=${PIPESTATUS[0]}
           echo "veraPDF exit status: $status"
-          # The exit code alone is not enough to gate on. veraPDF exits non-zero
-          # for a failed validation, but it also exits non-zero when it cannot
-          # decide, and those two must not look the same -- so the verdict text is
-          # checked as well, and both are printed.
+          if [ ! -s verapdf-report.txt ]; then
+            echo "::error::veraPDF produced no report at all (exit $status)."
+            echo "That is a broken invocation, not a conformance verdict."
+            docker run --rm verapdf/cli:v1.30.3 --version || true
+            exit 1
+          fi
+          # The exit code alone is not enough to gate on: veraPDF exits non-zero
+          # for a failed validation and also when it cannot decide, and those two
+          # must not look the same. The verdict text is checked as well.
           if grep -qi "is in accordance with PDF/A-1" verapdf-report.txt; then
             echo "veraPDF: conforms to PDF/A-1b"
           else
@@ -473,7 +483,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: llvm-tools-preview
-      - uses: taiki-e/install-action@cargo-fuzz
+      # Installed and then *verified*. `taiki-e/install-action@cargo-fuzz` was in
+      # the previous revision and the job still died with "no such command:
+      # `fuzz`", so the version is now asserted before the run rather than
+      # assumed to have landed.
+      - name: install cargo-fuzz
+        run: |
+          cargo +nightly install cargo-fuzz --locked
+          cargo +nightly fuzz --version
       # No `apt-get` action here. Two spellings of the popular one were tried --
       # `Apodinially/apt-get` (the maintainer's actual handle is a different
       # repository) and `apodrinaly/apt-get`, which is 404 -- and depending on a
