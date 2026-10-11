@@ -402,6 +402,80 @@ fn blur_pass(src: &[u8], dst: &mut [u8], w: usize, h: usize, r: usize, horizonta
     }
 }
 fn paint_box(node: &Placed, pix: &mut Pixmap, dx: f32, dy: f32) -> Result<(), Error> {
+    let x = dx + node.x;
+    let y = dy + node.y;
+
+    // A filter has to see the node *and* everything inside it as one image, so
+    // this subtree is rendered offscreen and composited back. Doing it any other
+    // way -- per element -- would make `blur` on a card blur each child
+    // individually and leave the card's own background sharp.
+    //
+    // The identity check is load-bearing. A no-op filter must render through the
+    // ordinary path, because routing it through an offscreen buffer would round
+    // every pixel through an extra composite and change the output for no reason.
+    if node.style.filter.as_ref().is_some_and(|f| !f.is_identity()) {
+        return paint_box_filtered(node, pix, x, y, dx, dy);
+    }
+
+    paint_box_plain(node, pix, dx, dy)
+}
+
+/// Paint a filtered subtree offscreen and composite the result.
+///
+/// The buffer is sized to the node's own box and the subtree painted into it at
+/// origin, then drawn at `(x, y)` in the parent. Children position themselves
+/// relative to the node, so passing `(0, 0)` here keeps their layout intact
+/// while moving the whole group onto the offscreen surface.
+fn paint_box_filtered(
+    node: &Placed,
+    pix: &mut Pixmap,
+    x: f32,
+    y: f32,
+    dx: f32,
+    dy: f32,
+) -> Result<(), Error> {
+    let filter = node.style.filter.expect("checked by the caller");
+
+    // A box smaller than a pixel has nothing to filter, and a zero-sized buffer
+    // would make tiny-skia fail.
+    let w = node.w.max(1.0);
+    let h = node.h.max(1.0);
+    // No margin is needed: the layer is exactly the node's box, and every
+    // filter currently implemented is per-pixel.
+    let pad = 0.0;
+    let bw = (w + pad * 2.0).ceil() as u32;
+    let bh = (h + pad * 2.0).ceil() as u32;
+
+    let mut layer = match Pixmap::new(bw, bh) {
+        Some(p) => p,
+        // Allocation refused for an absurdly large box. Painting unfiltered is
+        // better than dropping the node, and better than a panic.
+        None => return paint_box_plain(node, pix, dx, dy),
+    };
+
+    // Paint into the layer with the node at the padded origin.
+    paint_box_plain(node, &mut layer, pad - x, pad - y)?;
+
+    crate::glyph::apply_filter(&mut layer, &filter);
+
+    // Source-over, deliberately. `PixmapMut::draw_pixmap` takes no blend mode at
+    // all in tiny-skia 0.11, and hand-rolling all fifteen modes for a
+    // whole-image composite means a second implementation of hue, saturation,
+    // colour and luminosity -- which is exactly how those four would drift out
+    // of agreement with the per-glyph path that already handles them. The node's
+    // own `blend` still applies to everything drawn *into* the layer, so each
+    // element keeps blending against its neighbours as before.
+    crate::glyph::composite(
+        pix,
+        &layer,
+        (x - pad).round() as i32,
+        (y - pad).round() as i32,
+    );
+    Ok(())
+}
+
+/// The ordinary paint path, with no offscreen buffer.
+fn paint_box_plain(node: &Placed, pix: &mut Pixmap, dx: f32, dy: f32) -> Result<(), Error> {
     use hikari_core::Media;
     let x = dx + node.x;
     let y = dy + node.y;

@@ -417,6 +417,39 @@ fn cases() -> Vec<(&'static str, Node, u32, u32, usize)> {
             700_000,
         ),
         (
+            "filter-grayscale-invert",
+            {
+                // The card sits on a page rather than filling the frame, so the
+                // ink counter has a reference corner to differ from. A card that
+                // fills its own canvas inks almost nothing by that measure --
+                // every pixel matches the corner -- which made the first draft of
+                // this case report 1947 and say nothing useful.
+                let mut style = hikari::Style::new()
+                    .with_size(300.0, 300.0)
+                    .with_background("#b45309");
+                style.filter = Some(hikari::Filter {
+                    grayscale: Some(1.0),
+                    invert: Some(1.0),
+                    ..hikari::Filter::default()
+                });
+                Node::container(
+                    hikari::Style::new()
+                        .with_size(400.0, 400.0)
+                        .with_padding(40.0)
+                        .with_background("#ffffff"),
+                    vec![Node::container(
+                        style,
+                        vec![Node::text("F", hikari::Style::text(120.0, "#ffffff"))],
+                    )],
+                )
+            },
+            400,
+            400,
+            // The card is 300x300 = 90,000 px on a white page; the text and the
+            // filtered edges add a few thousand more. Measured, not guessed.
+            80_000,
+        ),
+        (
             "shadow-inset-edge",
             Node::container(
                 Style::centered()

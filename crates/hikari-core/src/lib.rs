@@ -25,6 +25,8 @@ pub mod css;
 #[cfg(test)]
 mod css_tests;
 #[cfg(test)]
+mod filter_tests;
+#[cfg(test)]
 mod font_chain_tests;
 #[cfg(test)]
 mod font_subset_tests;
@@ -282,6 +284,284 @@ pub enum ShadowKind {
     /// A hard-edged shadow offset inside the box, no blur. Useful for a
     /// pressed or engraved look, which a blurred drop shadow cannot express.
     InsetEdge,
+}
+
+/// How a mask derives coverage from its source image.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum MaskMode {
+    /// The image's own alpha channel. The common case, and the only one that
+    /// composites correctly over arbitrary backgrounds.
+    #[default]
+    Alpha,
+    /// Rec. 709 luminance, so a black-and-white image masks by brightness. This
+    /// is how a photographic image is used as a stencil.
+    Luminance,
+}
+
+/// How a node's mask image is derived and applied.
+///
+/// A struct rather than two loose fields so `None` can mean "no mask" while a
+/// set value with default members still means one, and so adding a mode later
+/// cannot silently change the meaning of an existing tree.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub struct StyleMask {
+    /// Which image supplies the mask.
+    pub source: MaskSource,
+    /// Whether coverage comes from alpha or luminance.
+    #[serde(default)]
+    pub mode: MaskMode,
+}
+
+/// Which image supplies a node's mask.
+///
+/// Kept separate from [`crate::Style`] because the mask image is opaque bytes
+/// rather than a layout value, and because two nodes may share one image. It
+/// lives on the node so a mask can be positioned by layout like any other image.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum MaskSource {
+    /// Use this node's own image bytes as the mask, fitted to its box.
+    ///
+    /// Convenient for the common "image with a stencil applied" case and costs
+    /// no extra field: the image is already there.
+    #[default]
+    SelfImage,
+}
+
+/// Post-processing applied to a node and everything inside it.
+///
+/// # Order
+///
+/// CSS applies filter functions in source order. This is a fixed pipeline
+/// instead, because [`crate::Style`] carries one struct rather than a list and
+/// a reordered field would silently change output:
+///
+/// 1. **Colour matrix** -- `invert`, `grayscale`, `sepia`, `saturate`,
+///    `contrast`, `brightness`. These all compose into a single 4x5 matrix, so
+///    they cost one pass regardless of how many are set.
+/// 2. **Opacity** -- last, so it scales the final coverage rather than the
+///    inputs to the matrix.
+///
+/// Blur is deliberately absent. An earlier version implemented it as three box
+/// passes and it was wrong in a way no test could pin down cheaply: repeated
+/// passes progressively darkened the image rather than spreading it. Shipping a
+/// filter that quietly eats a picture is worse than shipping no blur at all, so
+/// the field was removed rather than left in place with a caveat. It remains open
+/// work in the roadmap.
+///
+/// Every field is a factor with an identity value: `None` or `1.0` changes
+/// nothing, so a default-constructed `Filter` is a no-op and is skipped
+/// entirely rather than costing a pass.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+pub struct Filter {
+    /// `brightness(f)`: multiply every channel by `f`. `1.0` is identity.
+    #[serde(default)]
+    pub brightness: Option<f32>,
+    /// `contrast(f)`: `f = 1.0` identity, `0.0` flat mid-grey.
+    #[serde(default)]
+    pub contrast: Option<f32>,
+    /// `saturate(f)`: `1.0` identity, `0.0` fully desaturated.
+    #[serde(default)]
+    pub saturate: Option<f32>,
+    /// `grayscale(f)`: blend toward luminance by `f`. `0.0` identity.
+    #[serde(default)]
+    pub grayscale: Option<f32>,
+    /// `sepia(f)`: blend toward a sepia tone by `f`. `0.0` identity.
+    #[serde(default)]
+    pub sepia: Option<f32>,
+    /// `invert(f)`: invert each channel by `f`. `0.0` identity.
+    #[serde(default)]
+    pub invert: Option<f32>,
+    /// `opacity(f)`: scale final alpha by `f`. `1.0` identity.
+    #[serde(default)]
+    pub opacity: Option<f32>,
+}
+
+impl Filter {
+    /// Does this filter do anything at all?
+    ///
+    /// Checked before allocating an offscreen buffer, because a no-op filter
+    /// that went down the offscreen path would round pixels through a composite
+    /// and change output for no reason.
+    #[must_use]
+    pub fn is_identity(&self) -> bool {
+        self.brightness
+            .is_none_or(|v| (v - 1.0).abs() < f32::EPSILON)
+            && self.contrast.is_none_or(|v| (v - 1.0).abs() < f32::EPSILON)
+            && self.saturate.is_none_or(|v| (v - 1.0).abs() < f32::EPSILON)
+            && self.grayscale.is_none_or(|v| v.abs() < f32::EPSILON)
+            && self.sepia.is_none_or(|v| v.abs() < f32::EPSILON)
+            && self.invert.is_none_or(|v| v.abs() < f32::EPSILON)
+            && self.opacity.is_none_or(|v| (v - 1.0).abs() < f32::EPSILON)
+    }
+
+    /// The combined colour matrix, folded into a single 4x5 affine transform.
+    ///
+    /// Row `r` reads `out_r = m[r][0]*r + m[r][1]*g + m[r][2]*b + m[r][4]`.
+    /// Row 3 is alpha and is left alone; [`Self::opacity`] handles that, after
+    /// the matrix, so a colour operation cannot disturb it.
+    ///
+    /// Returns `None` when no colour operation is set, which is the common case
+    /// and lets the rasteriser skip the pass entirely.
+    #[must_use]
+    pub fn color_matrix(&self) -> Option<[[f32; 5]; 4]> {
+        if self.invert.is_none()
+            && self.grayscale.is_none()
+            && self.sepia.is_none()
+            && self.saturate.is_none()
+            && self.contrast.is_none()
+            && self.brightness.is_none()
+        {
+            return None;
+        }
+
+        // Identity for the three colour rows, and all-zero for the alpha row.
+        // The alpha row is deliberately *not* `1 0 0 0 0`: alpha is applied
+        // separately and after the matrix, so writing an identity into row 3
+        // would leave `filter_tests::alpha_row_is_never_touched` failing and,
+        // worse, would make every colour operation write to alpha.
+        //
+        // Each operation then folds in left to right in the order documented on
+        // the type, so the result is one matrix whatever order the fields are
+        // declared in.
+        let mut m = [
+            [1.0f32, 0.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 0.0, 0.0],
+        ];
+
+        // invert(f): lerp(c, 1-c, f), i.e. c*(1-2f) + f. The offset is in the
+        // same 0..=255 units as the channels.
+        if let Some(f) = self.invert {
+            fold(&mut m, [1.0 - 2.0 * f; 3], f * 255.0);
+        }
+        // grayscale(f): lerp(c, luma, f). This is *not* a per-channel scale: all
+        // three output rows get the same luma weights, because every channel
+        // becomes the same luminance. Folding it as a diagonal was the first
+        // version's bug and turned "red becomes dark grey" into "red stays red".
+        if let Some(f) = self.grayscale {
+            fold_luma(&mut m, f);
+        }
+        // sepia(f): lerp(c, sepia(c), f).
+        if let Some(f) = self.sepia {
+            const S: [[f32; 3]; 3] = [
+                [0.393, 0.769, 0.189],
+                [0.349, 0.686, 0.168],
+                [0.272, 0.534, 0.131],
+            ];
+            // `sepia(c)` mixes every input channel into every output channel, so
+            // this is a full 3x3 rather than a diagonal: an identity part on the
+            // diagonal plus the sepia tone everywhere.
+            let mut w = [[0.0f32; 3]; 3];
+            for (r, row) in w.iter_mut().enumerate() {
+                for (c, cell) in row.iter_mut().enumerate() {
+                    *cell = if r == c { 1.0 - f } else { 0.0 } + f * S[r][c];
+                }
+            }
+            fold3(&mut m, w, 0.0);
+        }
+        // saturate(f) is grayscale with the parameter the other way round: CSS
+        // defines f=1 as identity and f=0 as grey, so the colour term is scaled
+        // by `f` and the luma term by `1-f`. Using grayscale's `1-f, f` here
+        // made saturate(1) fully desaturate, which is the exact inverse of what
+        // it is documented to do.
+        if let Some(f) = self.saturate {
+            fold_luma(&mut m, 1.0 - f);
+        }
+        // contrast(f): c*f + 0.5*(1-f), pivoting about mid grey. The offset is
+        // scaled into channel units; leaving it in 0..=1 made `contrast(0)`
+        // produce black instead of flat mid grey.
+        if let Some(f) = self.contrast {
+            fold(&mut m, [f; 3], 0.5 * (1.0 - f) * 255.0);
+        }
+        // brightness(f): c*f.
+        if let Some(f) = self.brightness {
+            fold(&mut m, [f; 3], 0.0);
+        }
+        Some(m)
+    }
+}
+
+/// Rec. 709 luminance weights. These sum to 1, which is why `fold_luma` needs no
+/// offset term.
+const LUMA: [f32; 3] = [0.2126, 0.7152, 0.0722];
+
+/// Fold `lerp(c, luma(c), t)` into the affine `m`.
+///
+/// Expanded, output channel `r` is `c[r]*(1-t) + sum_k LUMA[k]*c[k]*t`, so row
+/// `r` carries the luma weights *plus* `(1-t)` on its own diagonal:
+///
+/// ```text
+/// row_r[k] = LUMA[k]*t + (1-t) * (r == k)
+/// ```
+///
+/// Giving every row the same weights is wrong at every setting except full
+/// desaturation: at `t = 0` it produces a matrix that sums all three channels
+/// instead of the identity, which is how `saturate(1.0)` came out as "add the
+/// channels together" rather than "change nothing".
+fn fold_luma(m: &mut [[f32; 5]; 4], t: f32) {
+    let mut w = [[0.0f32; 3]; 3];
+    for (r, row) in w.iter_mut().enumerate() {
+        for (k, cell) in row.iter_mut().enumerate() {
+            *cell = LUMA[k] * t;
+        }
+        row[r] += 1.0 - t;
+    }
+    // The row weight sums are all 1, so the offset column carries through
+    // unchanged and no correction is needed.
+    fold3(m, w, 0.0);
+}
+
+/// Fold a per-channel operation `out = c*w + offset` into the affine `m`.
+///
+/// All offsets and weights are in the same 0..=255 units the rasteriser works
+/// in, so `contrast(0)` lands on mid grey rather than on black.
+///
+/// Composing `out_r = sum_i (sum_j m[r][j] c_j + m[r][4]) w_i + offset` gives
+/// `new_m[r][j] = sum_i m[r][i] w_i` and
+/// `new_m[r][4] = m[r][4] * sum(w) + offset`. Getting that second term right is
+/// the whole reason this is a function rather than three inline multiplications:
+/// `invert` has weights summing to `3 - 6f`, not 1, so dropping the factor
+/// misplaces every pixel that had a non-zero offset from an earlier operation.
+fn fold(m: &mut [[f32; 5]; 4], w: [f32; 3], offset: f32) {
+    fold3(
+        m,
+        [[w[0], 0.0, 0.0], [0.0, w[1], 0.0], [0.0, 0.0, w[2]]],
+        offset,
+    );
+}
+
+/// Fold a full 3x3 colour operation into `m`.
+///
+/// `w` describes the operation as `new_out_r = sum_i w[r][i] * out_i`, and
+/// composing that with the existing affine gives
+///
+/// ```text
+/// new_m[r][j] = sum_i w[r][i] * old_m[i][j]
+/// new_m[r][4] = sum_i w[r][i] * old_m[i][4]  +  offset
+/// ```
+///
+/// The first line is `w` times `old`, **not** `old` times `w`. The first
+/// version had it the other way round, which is invisible whenever `old` is the
+/// identity -- so every single-operation test passed, grayscale included, and
+/// only `saturate(1.0)` exposed it. That is why the composition test below
+/// exists and why it pairs two *luma* operations rather than two diagonal ones.
+///
+/// The weight sum is per row, not taken from row 0: for `invert` the weights are
+/// all equal so it would not matter, but a matrix whose rows sum differently
+/// would silently gain or lose its offset on the other channels.
+fn fold3(m: &mut [[f32; 5]; 4], w: [[f32; 3]; 3], offset: f32) {
+    let old = *m;
+    for r in 0..3 {
+        for j in 0..3 {
+            m[r][j] = w[r][0] * old[0][j] + w[r][1] * old[1][j] + w[r][2] * old[2][j];
+        }
+        let sum = w[r][0] + w[r][1] + w[r][2];
+        m[r][4] = old[r][4] * sum + offset;
+    }
 }
 
 /// How image content fills its box.
@@ -569,6 +849,18 @@ pub struct Style {
     /// Paint text with the background fill (`background-clip: text`).
     #[serde(default)]
     pub clip_text: bool,
+
+    /// Post-processing applied to this node and everything inside it.
+    ///
+    /// `None`, and any filter whose fields are all at identity, render exactly
+    /// as if no filter were set -- the rasteriser checks for that and skips the
+    /// offscreen pass rather than rounding pixels through a composite.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filter: Option<Filter>,
+
+    /// Mask this node's contents using one of its images.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mask: Option<StyleMask>,
 }
 
 impl Default for Style {
@@ -604,6 +896,8 @@ impl Default for Style {
             shadow: None,
             link: None,
             clip_text: false,
+            filter: None,
+            mask: None,
         }
     }
 }
@@ -837,6 +1131,25 @@ impl Style {
     #[must_use]
     pub fn with_bookmark(mut self, level: u8) -> Self {
         self.bookmark = Some(level.max(1));
+        self
+    }
+
+    /// Keep this box unsplit when flowing across pages (moves whole).
+    /// Post-process this node and everything inside it.
+    ///
+    /// `#[must_use]` like every other setter here, so a forgotten `let _ =` does
+    /// not silently drop the filter and leave a card looking unfiltered with
+    /// nothing in the output to explain why.
+    #[must_use]
+    pub fn with_filter(mut self, filter: Filter) -> Self {
+        self.filter = Some(filter);
+        self
+    }
+
+    /// Mask this node's contents using one of its images.
+    #[must_use]
+    pub fn with_mask(mut self, mask: StyleMask) -> Self {
+        self.mask = Some(mask);
         self
     }
 

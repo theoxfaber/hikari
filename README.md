@@ -519,13 +519,19 @@ Ordered by what most limits the project, not by what is easiest.
       bypassing the shaper, so no fallback could ever join. Each run is now split
       by coverage and shaped with a face that has the glyph. Found and fixed a
       bug where an unregistered `FontId` rerouted the whole run into the chain.
+- [x] **Colour filters.** `brightness`, `contrast`, `saturate`, `grayscale`,
+      `sepia`, `invert` and `opacity`, applied to a node *and everything inside
+      it* by painting the subtree offscreen and compositing it back. All six
+      colour operations fold into one 4x5 affine transform, so any combination
+      costs a single pass. Blur is **not** included: an implementation darkened
+      the image instead of spreading it, and the field was removed rather than
+      shipped wrong. Masks are parsed but inert.
 - [x] **Blend modes and shadow kinds.** Fifteen blend modes (the eleven
       separable ones plus `hue`, `saturation`, `color`, `luminosity`) applied to
       a node's border, background, image, text *and* shadow, plus `InsetTop` and
       `InsetEdge` shadows built by silhouette subtraction rather than as a dark
       overlay. `Normal` is byte-identical to the pre-blend-mode path, verified
-      against the determinism card and every corpus digest. Masks and filters
-      remain open.
+      against the determinism card and every corpus digest.
 - [x] **Golden-image corpus** — 21 cases, one per capability, in
       `crates/hikari/tests/corpus.sha256`, diffed in CI, plus an ink assertion
       per case so a blank render cannot be blessed. Found a radial gradient that

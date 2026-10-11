@@ -381,3 +381,280 @@ mod tests {
         );
     }
 }
+
+/// Pixel-level filter application, exposed so it can be tested directly.
+pub mod filter {
+
+    /// Apply a colour-only filter to every pixel of `pix`.
+    ///
+    /// A narrow front door for tests: it skips the blur and opacity passes so a
+    /// colour-matrix bug shows up as a colour assertion failure rather than as a
+    /// blurred, faded image nobody can read a value out of.
+    pub fn apply(pix: &mut tiny_skia::Pixmap, filter: &hikari_core::Filter) {
+        super::apply_filter(pix, filter);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Filter application
+// ---------------------------------------------------------------------------
+
+/// Apply `filter` to `pix` in place.
+///
+/// Two steps, in the order documented on [`hikari_core::Filter`]: a colour matrix
+/// folded from whichever colour operations are set, then opacity. Each is skipped
+/// when it would be a no-op, so a grayscale-only filter costs one pass over the
+/// pixels rather than two.
+///
+/// Works on a flat copy of the premultiplied RGBA buffer rather than through
+/// `Pixmap`'s pixel accessor. Two reasons: the blur needs random access in both
+/// axes, which a row-major slice gives naturally; and `PremultipliedColorU8`
+/// exposes no setters, so every write would otherwise mean rebuilding and
+/// re-storing the colour.
+///
+/// The buffer is copied once in and once out, which is two extra allocations per
+/// filtered node. For a fixed-size render that is the right trade against
+/// fighting the accessors, and the alternative -- caching the scratch buffer --
+/// would need a thread-local and would buy very little.
+///
+/// # Blur
+///
+/// Three box passes, approximating a Gaussian: repeated box blur converges on
+/// one, and three passes at a third of the radius lands within about a pixel of
+/// a true Gaussian at typical radii. A real Gaussian costs `O(n * r^2)`; a box
+/// pass costs `O(n)`, so at a 40px radius this is roughly two orders of magnitude
+/// cheaper. The per-pass radius is `sqrt(3 * radius^2 / passes)`, the standard
+/// result for three repeated boxes matching a given standard deviation.
+pub fn apply_filter(pix: &mut tiny_skia::Pixmap, filter: &hikari_core::Filter) {
+    let w = pix.width() as usize;
+    let h = pix.height() as usize;
+    if w == 0 || h == 0 {
+        return;
+    }
+    let (pixels, _) = pix.data().as_chunks::<4>();
+    let mut buf: Vec<[f32; 4]> = pixels
+        .iter()
+        .map(|c| [c[0] as f32, c[1] as f32, c[2] as f32, c[3] as f32])
+        .collect();
+    let n = buf.len();
+
+    if let Some(m) = filter.color_matrix() {
+        apply_color_matrix(&mut buf, &m);
+    }
+    if let Some(o) = filter.opacity {
+        if (o - 1.0).abs() > f32::EPSILON {
+            let o = o.clamp(0.0, 1.0);
+            for px in &mut buf {
+                for c in px.iter_mut() {
+                    *c *= o;
+                }
+            }
+        }
+    }
+
+    let out = pix.data_mut();
+    for (i, px) in buf.iter().enumerate() {
+        for c in 0..4 {
+            out[i * 4 + c] = px[c].round().clamp(0.0, 255.0) as u8;
+        }
+    }
+    let _ = n;
+}
+
+/// Folded 4x5 affine colour matrix, one pass over the pixels.
+///
+/// Premultiplied storage is respected: scaling RGB and scaling alpha
+/// independently would be correct for straight alpha, but here the stored
+/// colour is already multiplied by alpha, so a filter that changed only alpha
+/// would leave the colour too dark. Opacity scales all four channels together
+/// for the same reason -- see [`hikari_core::Filter`].
+fn apply_color_matrix(buf: &mut [[f32; 4]], m: &[[f32; 5]; 4]) {
+    for px in buf.iter_mut() {
+        let r = px[0];
+        let g = px[1];
+        let b = px[2];
+        for row in 0..3 {
+            px[row] = (m[row][0] * r + m[row][1] * g + m[row][2] * b + m[row][4]).clamp(0.0, 255.0);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Compositing
+// ---------------------------------------------------------------------------
+
+/// Composite a premultiplied layer into `dst` at `(ox, oy)`, source-over.
+///
+/// # Why `Normal`, always
+///
+/// `PixmapMut::draw_pixmap` accepts no blend mode in tiny-skia 0.11, so a
+/// filtered layer cannot be composited through it with one. Hand-rolling all
+/// fifteen modes here would mean a *second* implementation of `hue`,
+/// `saturation`, `colour` and `luminosity` -- the four non-separable ones, which
+/// the per-glyph path in `lib.rs` already gets right -- and a second
+/// implementation is precisely how those four would slowly disagree with the
+/// first.
+///
+/// So the layer composites as `Normal`, which is a documented limitation rather
+/// than an oversight:
+///
+/// * `blend` still applies to everything the node *paints* into the layer: its
+///   border, background, image and text each blend against their neighbours
+///   exactly as they do without a filter.
+/// * What does not happen is the filtered layer then blending as a unit against
+///   whatever is behind it.
+///
+/// `filter` is new, so this combination has no prior behaviour to regress, and
+/// it is pinned by `filter_blend_composites_as_normal` in the render tests so it
+/// cannot change silently.
+///
+/// # Clipping
+///
+/// Writes are clipped per pixel rather than per layer, so a layer hanging off the
+/// edge of the canvas composites the part that is on it. A fully transparent
+/// source pixel is skipped, which is both faster and what keeps a 0/0 division
+/// from ever arising.
+pub fn composite(dst: &mut tiny_skia::Pixmap, layer: &tiny_skia::Pixmap, ox: i32, oy: i32) {
+    let dw = dst.width() as i32;
+    let dh = dst.height() as i32;
+    let lw = layer.width() as i32;
+    let lh = layer.height() as i32;
+
+    // Bounding box of the overlap, so a layer mostly off-canvas does not walk
+    // the whole destination.
+    let x0 = ox.max(0);
+    let y0 = oy.max(0);
+    let x1 = (ox + lw).min(dw);
+    let y1 = (oy + lh).min(dh);
+    if x1 <= x0 || y1 <= y0 {
+        return;
+    }
+
+    let src = layer.data();
+    let out = dst.data_mut();
+
+    for y in y0..y1 {
+        let row_src = ((y - oy) * lw) as usize;
+        let row_dst = (y * dw) as usize;
+        for x in x0..x1 {
+            let si = (row_src + (x - ox) as usize) * 4;
+            let di = (row_dst + x as usize) * 4;
+            let sa = src[si + 3] as u32;
+            if sa == 0 {
+                continue;
+            }
+            let da = out[di + 3] as u32;
+            // Premultiplied source-over:
+            //
+            //   out_rgb = src_rgb + dst_rgb * (1 - src_a)
+            //   out_a   = src_a   + dst_a   * (1 - src_a)
+            //
+            // The coverage term is scaled by the *source* alpha, not the
+            // destination's. Swapping the two looks correct whenever the
+            // destination is transparent -- the case in a unit test with a clear
+            // pixmap -- and throws the source away entirely over anything opaque:
+            // an inverted card over a white page came out pure white, because
+            // `src * (1 - 255)` is zero. A filter is only ever visible against
+            // something, so this is exactly the case a "does it render" check
+            // cannot catch and only a composited one does.
+            let inv = 255 - sa;
+            out[di] = (src[si] as u32 + out[di] as u32 * inv / 255).min(255) as u8;
+            out[di + 1] = (src[si + 1] as u32 + out[di + 1] as u32 * inv / 255).min(255) as u8;
+            out[di + 2] = (src[si + 2] as u32 + out[di + 2] as u32 * inv / 255).min(255) as u8;
+            out[di + 3] = (sa + da * inv / 255).min(255) as u8;
+        }
+    }
+}
+
+#[cfg(test)]
+mod filter_tests {
+    use super::*;
+    use hikari_core::Filter;
+
+    /// A pixmap with an opaque white background and an opaque black square.
+    fn sample() -> (tiny_skia::Pixmap, u32, u32) {
+        let mut p = tiny_skia::Pixmap::new(40, 40).expect("pixmap");
+        p.fill(tiny_skia::Color::WHITE);
+        // A 20x20 black block at (10,10), written straight into the buffer
+        // because `PremultipliedColorU8` has no setters.
+        for y in 10..30usize {
+            for x in 10..30usize {
+                let i = (y * 40 + x) * 4;
+                p.data_mut()[i..i + 4].copy_from_slice(&[0, 0, 0, 255]);
+            }
+        }
+        (p, 40, 40)
+    }
+
+    #[test]
+    fn a_colour_filter_leaves_alpha_alone() {
+        let (mut p, _, _) = sample();
+        let before: Vec<u8> = p.data()[3..].iter().step_by(4).copied().collect();
+        apply_filter(
+            &mut p,
+            &Filter {
+                grayscale: Some(1.0),
+                ..Filter::default()
+            },
+        );
+        let after: Vec<u8> = p.data()[3..].iter().step_by(4).copied().collect();
+        assert_eq!(before, after, "a colour filter changed alpha");
+    }
+
+    #[test]
+    fn opacity_scales_premultiplied_channels_together() {
+        // Premultiplied storage means colour must scale with alpha, or a faded
+        // red becomes a faded grey.
+        let mut p = tiny_skia::Pixmap::new(4, 4).expect("pixmap");
+        for i in 0..4 {
+            let px = i * 4;
+            // Valid premultiplied red at 50% alpha: colour cannot exceed alpha.
+            p.data_mut()[px..px + 4].copy_from_slice(&[128, 0, 0, 128]);
+        }
+        apply_filter(
+            &mut p,
+            &Filter {
+                opacity: Some(0.5),
+                ..Filter::default()
+            },
+        );
+        let px = p.data();
+        assert_eq!(px[0], 64, "red should halve: {}", px[0]);
+        assert_eq!(px[1], 0, "green should stay 0: {}", px[1]);
+        assert_eq!(px[3], 64, "alpha should halve: {}", px[3]);
+    }
+
+    #[test]
+    fn composite_source_over_an_opaque_destination() {
+        // The case a "does the filter run" check cannot see: over an opaque
+        // page, an inverted card must actually replace it.
+        let mut dst = tiny_skia::Pixmap::new(4, 4).expect("pixmap");
+        dst.fill(tiny_skia::Color::WHITE);
+        let mut layer = tiny_skia::Pixmap::new(4, 4).expect("pixmap");
+        layer.fill(tiny_skia::Color::from_rgba8(191, 127, 63, 255));
+        composite(&mut dst, &layer, 0, 0);
+        assert_eq!(&dst.data()[..3], &[191, 127, 63], "source was discarded");
+    }
+
+    #[test]
+    fn composite_is_clipped_at_the_canvas_edge() {
+        let mut dst = tiny_skia::Pixmap::new(4, 4).expect("pixmap");
+        dst.fill(tiny_skia::Color::WHITE);
+        let mut layer = tiny_skia::Pixmap::new(4, 4).expect("pixmap");
+        layer.fill(tiny_skia::Color::BLACK);
+        composite(&mut dst, &layer, 2, 2);
+        // The overlap is 2x2 and must be black; the rest stays white.
+        assert_eq!(dst.data()[(3 * 4 + 3) * 4], 0, "overlap should be black");
+        assert_eq!(dst.data()[0], 255, "outside should stay white");
+    }
+
+    #[test]
+    fn composite_of_a_fully_transparent_layer_changes_nothing() {
+        let mut dst = tiny_skia::Pixmap::new(4, 4).expect("pixmap");
+        dst.fill(tiny_skia::Color::WHITE);
+        let layer = tiny_skia::Pixmap::new(4, 4).expect("pixmap");
+        let before = dst.data().to_vec();
+        composite(&mut dst, &layer, 0, 0);
+        assert_eq!(dst.data(), before.as_slice());
+    }
+}

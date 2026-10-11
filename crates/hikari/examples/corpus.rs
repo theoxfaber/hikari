@@ -403,6 +403,47 @@ fn cases() -> Vec<Case> {
             ),
         ),
         Case::new(
+            "filter-grayscale-invert",
+            "colour filters applied to a whole subtree",
+            600,
+            300,
+            // Two boxes side by side, one filtered and one not, so a regression
+            // that only affects filtered nodes cannot be missed by eye in the
+            // digest: the pair must stay visibly different.
+            {
+                let strip = |filter: Option<hikari::Filter>, bg: &str| {
+                    let mut style = hikari::Style::new()
+                        .with_size(280.0, 260.0)
+                        .with_padding(30.0)
+                        .with_background(bg);
+                    style.filter = filter;
+                    Node::container(
+                        style,
+                        vec![Node::text(
+                            "Filter",
+                            hikari::Style::text(44.0, "#ffffff"),
+                        )],
+                    )
+                };
+                Node::container(
+                    hikari::Style::new()
+                        .with_size(600.0, 300.0)
+                        .with_background("#f1f5f9"),
+                    vec![
+                        strip(None, "#334155"),
+                        strip(
+                            Some(hikari::Filter {
+                                grayscale: Some(1.0),
+                                invert: Some(1.0),
+                                ..hikari::Filter::default()
+                            }),
+                            "#b45309",
+                        ),
+                    ],
+                )
+            },
+        ),
+        Case::new(
             "css-html-card",
             "the CSS/HTML front end rendering the same card",
             1200,

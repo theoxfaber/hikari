@@ -22,6 +22,7 @@ opaque-alpha-strip 595 31206d4459c753425840b7ce4e06bd3e1ed77baf71d8b405b4af65578
 blend-multiply 584 03013c7140e41be1ded3c6e6578fdaf64365e72f36f781b3273330d5b307d728 # multiply compositing of a fill against its parent
 blend-screen-text 3935 e49d39e10001eaf6343b2b95c75631969e23b4a9f9ebff2e7af0dd388ba1f17a # a blend mode reaching the glyph path, not just fills
 shadow-inset-top 2744 74f3ac821e8e72836159c110afb6c22154c8b34e57261fc39d3fccb14b8bab08 # an inset shadow staying inside the silhouette
+filter-grayscale-invert 3366 3b4e333b8771f492fa04baca22d9fd3f49f1df11d92e06c92f3e24bb79582a09 # colour filters applied to a whole subtree
 css-html-card 18173 575870ffb622295ba946cac22e1731238f89c88455de7c9c874554eebfd3ea1c # the CSS/HTML front end rendering the same card
 shadow-inset-edge 1877 38f5431402406b6c807df35e829231bdf345bc082e2bd7a2fd5e25031fe8e6d1 # the hard-edged inset variant ignoring any blur radius
 svg-reference 580 283abb82fa8b60c1039fb0b15a68f70afe40d10a5ae916fd3c98f2269639c0dd # text output shape and glyph ids

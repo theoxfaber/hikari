@@ -3,6 +3,82 @@
 All notable changes to Hikari. Versions match the workspace `version` and
 the `hikari-rs` facade crate.
 
+## v0.21.4 — colour filters
+
+### Added
+- **`Style::filter`, applied to a node and everything inside it.** Six colour
+  operations — `brightness`, `contrast`, `saturate`, `grayscale`, `sepia`,
+  `invert` — plus `opacity`, reachable from CSS as `filter: grayscale(1) invert(1)`.
+- `Filter::color_matrix` folds all six into a single 4x5 affine transform, so any
+  combination costs one pass over the pixels regardless of how many operations
+  are set. `None` for no colour operation at all, which skips the pass entirely.
+- CSS support for the above. `blur`, `drop-shadow`, `hue-rotate` and `url()` are
+  **reported as skipped**, never silently dropped: a dropped blur is
+  indistinguishable from a filter that does nothing.
+- `Style::mask` and its types exist and round-trip through JSON, but **nothing
+  renders through a mask yet**. A mask on a node with no image is inert, and a
+  test says so explicitly rather than asserting a feature works.
+
+### Filtered nodes render offscreen
+A filter has to see a node *and* its children as one image, so the subtree is
+painted into its own buffer and composited back. A per-element filter would make
+`filter` on a card blur each child separately and leave the card's background
+sharp. An identity filter is detected and skips the offscreen path entirely, so a
+node with `filter: None` -- or one whose fields are all at their identity values
+-- renders byte-identically to having no filter at all, which a test asserts.
+
+### Fixed, all found by the tests written alongside it
+- **Source-over had its coverage terms swapped**: `src*(1-da) + dst*sa` instead of
+  `src + dst*(1-sa)`. Invisible against a transparent destination -- the case a
+  naive unit test uses -- and it discards the source completely over anything
+  opaque. An inverted card over a white page came out pure white.
+- **The matrix composition was transposed.** Invisible whenever the incoming
+  matrix is the identity, so every single-operation test passed, grayscale
+  included; only `saturate(1.0)` exposed it. Two *luma* operations composed in a
+  test now catch it, since `diag(a,b,c)` is its own transpose on the diagonal.
+- **`saturate` and `grayscale` had the same parameterisation.** They are the same
+  operation with the argument the other way round, so `saturate(1.0)` fully
+  desaturated -- the exact inverse of what it documents.
+- **Offsets were in 0..=1 units while the matrix works in 0..=255**, so
+  `contrast(0)` produced black instead of flat mid grey.
+- **`fold_luma` gave every row the same weights**, which is only correct at full
+  desaturation; at `t = 0` it summed all three channels instead of being the
+  identity.
+- **The identity initialisation made all four rows identical**, so every colour
+  row scaled red.
+
+### Blur is not here
+An earlier version implemented `blur` as three box passes. It was wrong in a way
+that kept eating the image -- repeated passes darkened it rather than spreading
+it -- and shipping a filter that quietly erases a picture is worse than shipping
+no blur. The field was **removed** rather than left with a caveat, so no tree can
+ask for it, and the roadmap says so. `hue-rotate` never existed.
+
+### Known limitation
+A filtered node composites with `Normal`, even when the node sets a blend mode.
+`blend` still applies to everything the node paints *into* the layer -- each
+element blends against its neighbours exactly as without a filter -- but the
+filtered layer does not then blend as a unit against what is behind it.
+`PixmapMut::draw_pixmap` accepts no blend mode in tiny-skia 0.11, and hand-rolling
+all fifteen modes for a whole-image composite means a second implementation of
+hue, saturation, colour and luminosity, which is how those four would drift out of
+agreement with the per-glyph path. Pinned by a test so it cannot change silently.
+
+### Tests
+26 new: 15 arithmetic tests in `hikari-core` checked against hand-computed values
+and a brute-force reference that never touches the matrix code, 6 pixel-level
+tests in `hikari-raster`, and 5 end-to-end render tests. The corpus grew to 22
+cases with a `filter-grayscale-invert` digest and a measured ink floor.
+
+Two test expectations were wrong and the code was right: `brightness(2)` of a
+`#4080c0` card puts red at exactly 128, not "well above 128"; and sepia of *white*
+clips, because the standard matrix rows sum to more than 1. Both now assert the
+value the arithmetic produces.
+
+206 tests pass, clippy clean, fmt clean. The determinism card is unchanged.
+
+---
+
 ## v0.21.3 — PDF font embedding moved off ttf-parser; no unmaintained deps remain
 
 ### Changed

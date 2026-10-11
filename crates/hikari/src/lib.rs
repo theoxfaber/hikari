@@ -17,6 +17,7 @@ pub use hikari_core::{
     Background, Color, ColorStop, Display, Error, FlexDir, Flow, FontEntry, FontId, HashCache,
     ImgFit, Justify, Media, Node, Placed, PlacedAdvance, Style, BUILTIN_FONT,
 };
+pub use hikari_core::{Filter, MaskMode, MaskSource, StyleMask};
 
 pub use hikari_core::{BlendMode, Shadow, ShadowKind};
 pub use hikari_pdf::{

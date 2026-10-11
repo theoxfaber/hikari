@@ -36,8 +36,8 @@
 use std::collections::HashMap;
 
 use crate::{
-    Align, Background, BlendMode, Color, ColorStop, Display, Error, FlexDir, FontId, ImgFit,
-    Justify, Node, Shadow, ShadowKind, Style,
+    Align, Background, BlendMode, Color, ColorStop, Display, Error, Filter, FlexDir, FontId,
+    ImgFit, Justify, Node, Shadow, ShadowKind, Style,
 };
 
 /// Everything the parser understood, and everything it did not.
@@ -1079,7 +1079,17 @@ fn apply_declaration(style: &mut Style, prop: &str, value: &str, report: &mut Pa
             None => no!("unsupported blend mode"),
         },
         "opacity" => no!("use an rgba colour with alpha instead"),
-        "filter" | "backdrop-filter" => no!("filters are not supported"),
+        // CSS filter functions. Only the colour ones are implemented; anything
+        // involving blur or an image URL is reported rather than skipped
+        // silently, because `filter: blur(4px)` producing *no* blur looks
+        // exactly like a filter that does nothing.
+        "filter" | "backdrop-filter" => match parse_css_filter(value) {
+            Some(f) => {
+                style.filter = Some(f);
+                ok!();
+            }
+            None => no!("only colour filters are supported: brightness, contrast, saturate, grayscale, sepia, invert, opacity"),
+        },
         "mask" | "mask-image" => no!("masks are not supported"),
         // `object-fit` is a property of the image node, not of the box, so it
         // cannot be carried on `Style`. The caller sets `ImgFit` directly; see
@@ -1106,6 +1116,56 @@ fn apply_declaration(style: &mut Style, prop: &str, value: &str, report: &mut Pa
 
         _ => no!("unknown property"),
     }
+}
+
+/// Parse a CSS `filter` value into a [`Filter`].
+///
+/// Returns `None` for anything the subset does not implement, including the
+/// whole-function form when *any* function in the list is unsupported. Applying
+/// the supported ones and dropping the rest would make `blur(4px) grayscale(1)`
+/// render as grayscale only, which reads as a filter that partly works rather
+/// than one that was rejected.
+fn parse_css_filter(value: &str) -> Option<Filter> {
+    // `filter: none` is the identity, and is not an error.
+    if value.trim().eq_ignore_ascii_case("none") {
+        return Some(Filter::default());
+    }
+    let body = value.trim();
+    // The caller has already matched the property name, so the value is just the
+    // function list. Guarded because a future caller might pass `filter(...)`.
+    let body = body
+        .strip_prefix("filter(")
+        .unwrap_or(body)
+        .strip_suffix(')')?;
+
+    let mut filter = Filter::default();
+    let mut seen_any = false;
+    for part in split_top_level(body) {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        let (name, arg) = part.split_once('(')?;
+        let arg = arg.trim_end_matches(')').trim();
+        let name = name.trim().to_ascii_lowercase();
+        // Every supported function takes a single unitless number.
+        let n: f32 = arg.parse().ok()?;
+        match name.as_str() {
+            "brightness" => filter.brightness = Some(n),
+            "contrast" => filter.contrast = Some(n),
+            "saturate" => filter.saturate = Some(n),
+            "grayscale" => filter.grayscale = Some(n),
+            "sepia" => filter.sepia = Some(n),
+            "invert" => filter.invert = Some(n),
+            "opacity" => filter.opacity = Some(n),
+            // Reported, not ignored: a dropped blur is indistinguishable from a
+            // filter that does nothing.
+            "blur" | "drop-shadow" | "hue-rotate" | "url" => return None,
+            _ => return None,
+        }
+        seen_any = true;
+    }
+    seen_any.then_some(filter)
 }
 
 fn parse_box4(value: &str) -> Option<(f32, f32, f32, f32)> {
