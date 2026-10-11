@@ -18,6 +18,7 @@ pub use font::{
 /// A CSS subset parser and an HTML-ish front end.
 pub mod assets;
 pub mod css;
+pub mod ui;
 
 // Both modules below contain only `#[test]` items, so compiling them in a
 // non-test build strips every function and leaves only the helpers and imports

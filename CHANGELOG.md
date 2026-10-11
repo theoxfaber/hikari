@@ -3,6 +3,62 @@
 All notable changes to Hikari. Versions match the workspace `version` and
 the `hikari-rs` facade crate.
 
+## v0.21.7 — a typed builder for trees
+
+### Added
+- **`hikari::ui`** — `div()`, `text()`, `image()`, `image_ref()` returning an
+  [`Elem`] builder whose `.child()` appends in the order written, so a deep card
+  reads top-down instead of nesting inside-out.
+- Five shorthands (`size`, `bg`, `pad`, `color`, `column`) and one escape hatch,
+  `Elem::style`, which reaches every remaining `Style` field.
+- `From<Elem>` and `From<&Node>` for `Elem`, so builders and hand-built nodes mix
+  freely in the same tree.
+
+### The problem
+`Node::container(style, vec![...])` puts the opening bracket, the style and the
+children before the thing they describe, so indentation nests the wrong way and
+a three-level card is a wall of closing brackets.
+
+### Why only five shorthands
+The obvious design is one fluent method per `Style` field. That duplicates twenty
+setters that then have to be kept in step with `Style`, and the copy is worse than
+what it replaces — no documentation, no colour parsing, no defaults. `Elem::style`
+takes the same `FnOnce(Style) -> Style` that `Style`'s own `with_*` chain takes,
+so nothing in `Style` is unreachable and nothing is duplicated.
+
+### Fixed, in the tests and examples written alongside it
+- **`Elem::style` originally took `FnOnce(&mut Style)`.** That is the more natural
+  signature to reach for and the wrong one: every `Style` method consumes and
+  returns, so each call site needed a `mem::take` and a put-back. A doc example
+  failed to compile because of it, which is how it was found. Now the signature
+  mirrors `Style`'s own chain and the shorthands call it directly.
+- **`row()` was a no-op.** `Style`'s default `dir` is already `Row`, so an
+  end-to-end test comparing a "row" layout to a "column" layout found the two
+  byte-identical and read it as the shorthand being broken. The default is now
+  pinned by a test and the shorthand is `column()`, which does change something.
+- **A doc example referenced `hikari::render_png_with_assets`, which does not
+  exist.** The design deliberately has no such function -- `Assets::resolve`
+  returns a resolved tree and the renderer takes no part -- so the example
+  described an API that was never built. It now matches the real one, and every
+  example in this module and in `assets` is compiled rather than `ignore`d, since
+  an uncompiled example is exactly what let that one through.
+- Two assertions guessed at pixel coordinates and were wrong: a "slate box at
+  (120, 120)" outside a 100x40 box, and a "row layout puts the second box past
+  x=60" when it starts *at* 60. Both now assert the measured relationship.
+
+### Tests
+16 new: 15 in `hikari-core`, including one that asserts the builder produces the
+tree `Node::container(...)` would produce for the same card, and 5 end-to-end
+through the renderer. The end-to-end comparison is a **byte-digest equality**
+against the hand-built equivalent, because "both produce ink" would pass for a
+builder that dropped a background colour -- and a paired assertion that the built
+tree is not blank, so two matching blank renders cannot pass as agreement.
+
+266 tests pass, clippy clean, fmt clean. Corpus, determinism and the WASM size
+budget are unchanged.
+
+---
+
 ## v0.21.6 — animated WebP
 
 ### Added

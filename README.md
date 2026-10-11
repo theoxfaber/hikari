@@ -489,10 +489,17 @@ Ordered by what most limits the project, not by what is easiest.
 
 - [x] **Caller-supplied fonts** via `register_font`, inherited through the tree
       and honoured by layout, raster, SVG and PDF (v0.19)
-- [ ] **Typed builder / JSX-style front end.** Today callers hand-build node
-      trees or externally tagged JSON. Colour strings and custom fonts both work
-      in JSON, but the ergonomics of building a tree by hand are still the
-      weakest part of the API.
+- [x] **A typed builder for trees.** `hikari::ui` -- `div()`, `text()`,
+      `.child()`, `.size()`, `.bg()`. Nesting reads top-down instead of
+      inside-out, five shorthands cover the common case, and `Elem::style` is an
+      escape hatch that reaches every remaining `Style` field without
+      duplicating twenty setters. A test asserts the builder produces exactly the
+      tree `Node::container(...)` would, and an end-to-end one asserts both
+      render to the same bytes.
+- [ ] **A JSX-style macro front end.** Not shipped. The CSS/HTML front end
+      already covers declarative authoring, and a proc macro is a new crate plus
+      a macro API to maintain for callers who want typed Rust -- a narrower
+      audience than the CSS path it would sit beside.
 - [x] **Moved the shaper off `rustybuzz` onto `harfrust`.** `rustybuzz` is
       declared unmaintained (RUSTSEC-2026-0206) and sat in the most critical
       path; that advisory is now gone from the tree. `harfrust` is the HarfBuzz

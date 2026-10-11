@@ -19,10 +19,24 @@
 //! takes: build a map, hand it over, render as before.
 //!
 //! ```no_run
-//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let assets = hikari::assets::Assets::new();
-//! assets.insert("logo", "https://example.com/logo.png", &client)?;
-//! let png = hikari::render_png_with_assets(&tree, 1200, 630, &assets)?;
+//! use hikari_core::assets::Assets;
+//! use hikari_core::{Node, Style};
+//!
+//! # fn fetch(_url: &str) -> Vec<u8> { Vec::new() }
+//! # fn main() -> Result<(), hikari_core::Error> {
+//! // Declared before anything is fetched.
+//! let tree = Node::container(
+//!     Style::new().with_size(120.0, 60.0),
+//!     vec![Node::image_ref("logo", Style::new())],
+//! );
+//!
+//! // The caller fetches; the library is handed the bytes.
+//! let mut assets = Assets::new();
+//! assets.insert("logo", "https://example.com/logo.png", fetch("https://example.com/logo.png"));
+//!
+//! // Resolve once, then render as usual -- the renderer takes no part.
+//! let resolved = assets.resolve(&tree)?;
+//! # let _ = resolved;
 //! # Ok(())
 //! # }
 //! ```
