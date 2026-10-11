@@ -67,7 +67,12 @@ jobs:
       # The custom-font checks need a font that is not the embedded one. A bare
       # runner has none, so they would silently skip -- install one so the
       # registry is genuinely exercised.
-      - name: install a second font
+      #
+      # Linux-only. This job now runs on macOS and Windows too, and `apt-get`
+      # does not exist there: the failure reads `sudo: apt-get: command not
+      # found`, which looks like a broken step rather than a wrong-platform step.
+      - name: install a second font (linux only)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq fonts-liberation
@@ -397,38 +402,52 @@ jobs:
       # Deliberately no system font is installed. The default fallback policy
       # must not read one, and a runner with fonts present is a runner that
       # cannot tell you if it does.
+      # `hikari-rs-node` is excluded: its test binary links N-API symbols
+      # (`napi_get_reference_value` and friends), which exist only inside a Node
+      # process, so linking it on a bare runner fails with undefined symbols. The
+      # `node` job builds it and runs its real test through an actual Node
+      # runtime, which is a better check than "it compiles" anyway.
+      #
+      # Adding this step back to a Linux matrix entry is a mistake worth recording:
+      # the failure is a link error that reads like a compiler problem.
       - name: tests
         run: cargo test --workspace --exclude hikari-rs-node
-      - name: the node binding compiles
-        run: cargo test -p hikari-rs-node --no-run
 
   verapdf:
     name: PDF/A conformance
     runs-on: ubuntu-latest
-    # veraPDF's own Docker image, pinned. Not the IzPack installer: that needs
-    # interactive pack selection and a Java runtime, which is a fragile thing to
-    # depend on in CI for a tool whose whole job is to be trustworthy.
-    container:
-      image: verapdf/cli:v1.30.3
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: build the PDF/A fixture
         run: cargo run --release -p hikari-rs --example pdfa_fixture
+      # veraPDF runs through `docker run` rather than a job-level `container:`.
+      # A job container replaces the *entire* runner image, so there is no Rust
+      # toolchain and no Node for the actions to run on -- the first version of
+      # this job did that and died in setup-node before it ever reached veraPDF.
+      # Pulling the same pinned image for one command gives veraPDF and the rest
+      # of the toolchain in the same place.
+      #
+      # Pinned: a conformance checker that changes version between runs makes the
+      # gate a moving target, and PDF/A-1b rule numbering has changed across
+      # veraPDF releases.
       - name: validate against PDF/A-1b
         run: |
-          set -euo pipefail
-          ls -l pdfa-fixture.pdf
-          # Both the exit code and the verdict text are checked. veraPDF exits
-          # non-zero on a failed validation, but a wrapper that swallows that
-          # would leave only the text -- and the text is what a human reads in
-          # the log, so both matter.
-          verapdf --format text --flavour 1b pdfa-fixture.pdf | tee report.txt || true
-          if grep -qi "is in accordance with PDF/A-1" report.txt; then
+          set -uo pipefail
+          docker pull verapdf/cli:v1.30.3
+          docker run --rm -v "$PWD:/work" verapdf/cli:v1.30.3 \
+            --format text --flavour 1b /work/pdfa-fixture.pdf | tee verapdf-report.txt
+          status=${PIPESTATUS[0]}
+          echo "veraPDF exit status: $status"
+          # The exit code alone is not enough to gate on. veraPDF exits non-zero
+          # for a failed validation, but it also exits non-zero when it cannot
+          # decide, and those two must not look the same -- so the verdict text is
+          # checked as well, and both are printed.
+          if grep -qi "is in accordance with PDF/A-1" verapdf-report.txt; then
             echo "veraPDF: conforms to PDF/A-1b"
           else
-            echo "::error::veraPDF did not confirm PDF/A-1b conformance. Full report above."
+            echo "::error::veraPDF did not confirm PDF/A-1b conformance. Report above."
             exit 1
           fi
 
@@ -445,9 +464,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: apodrinaly/apt-get@v2
-        with:
-          packages: clang
+      # No `apt-get` action here. Two spellings of the popular one were tried --
+      # `Apodinially/apt-get` (the maintainer's actual handle is a different
+      # repository) and `apodrinaly/apt-get`, which is 404 -- and depending on a
+      # third-party action to install one package is not worth the failure mode.
+      # GitHub's Ubuntu images ship clang, which is all cargo-fuzz needs.
+      - name: confirm the sanitizer runtime is present
+        shell: bash
+        run: clang --version
       - uses: Swatinem/rust-cache@v2
       # A bounded run, not a real fuzzing campaign. The point is that the
       # harnesses compile, the seeds are exercised, and a crash is caught within
