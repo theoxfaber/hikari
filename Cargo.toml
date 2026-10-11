@@ -22,21 +22,21 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.21.8"
+version = "0.21.9"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/theoxfaber/hikari"
 rust-version = "1.78"
 
 [workspace.dependencies]
-hikari-rs-core = { path = "crates/hikari-core", version = "0.21.8" }
-hikari-rs-raster = { path = "crates/hikari-raster", version = "0.21.8" }
-hikari-rs-svg = { path = "crates/hikari-svg", version = "0.21.8" }
-hikari-rs-animate = { path = "crates/hikari-animate", version = "0.21.8" }
-hikari-rs-pdf = { path = "crates/hikari-pdf", version = "0.21.8" }
-hikari-rs-node = { path = "crates/hikari-node", version = "0.21.8" }
-hikari-rs-wasm = { path = "crates/hikari-wasm", version = "0.21.8" }
-hikari-rs = { path = "crates/hikari", version = "0.21.8" }
+hikari-rs-core = { path = "crates/hikari-core", version = "0.21.9" }
+hikari-rs-raster = { path = "crates/hikari-raster", version = "0.21.9" }
+hikari-rs-svg = { path = "crates/hikari-svg", version = "0.21.9" }
+hikari-rs-animate = { path = "crates/hikari-animate", version = "0.21.9" }
+hikari-rs-pdf = { path = "crates/hikari-pdf", version = "0.21.9" }
+hikari-rs-node = { path = "crates/hikari-node", version = "0.21.9" }
+hikari-rs-wasm = { path = "crates/hikari-wasm", version = "0.21.9" }
+hikari-rs = { path = "crates/hikari", version = "0.21.9" }
 wasm-bindgen = { version = "0.2" }
 
 taffy = { version = "0.9", default-features = false, features = ["std", "taffy_tree", "flexbox", "grid", "block_layout", "calc", "alloc"] }
@@ -72,7 +72,36 @@ strip = true
 opt-level = 3
 lto = true
 codegen-units = 1
-panic = "abort"
+# No `panic = "abort"`, and it is not set anywhere else either. It was here
+# until v0.21.9. Two reasons to remove it, one measured and one structural.
+#
+# Measured: it is worth 264 bytes. Two builds of the WebAssembly bundle from this
+# tree, differing only in this setting:
+#
+#   unwind  3,693,596 bytes
+#   abort   3,693,332 bytes
+#
+# The justification for the setting was always size -- aborting removes unwind
+# tables from the final artifact. 264 bytes against a 3.7 MB bundle does not
+# justify an extra profile, and while measuring it two claims I had written down
+# about the setting turned out to be unsupported:
+#
+#   * "It breaks `cargo test --release`." It does not. Cargo forces `panic =
+#     "unwind"` for targets built with the test harness, and a `--release` test
+#     run reports a failing assertion normally either way. Checked rather than
+#     assumed.
+#   * "It is worth 63 KB." Wrong, and recorded here only so it is not repeated.
+#
+# Structural, and the real reason: a Cargo profile applies to every crate built
+# from this workspace, so `panic = "abort"` in `release` compiled the *library*
+# rlibs with abort semantics too. A library that carries that into a link is a
+# library deciding its consumers' panic behaviour for them. A crate published to
+# crates.io escapes it -- the consumer's profile wins -- so this only ever
+# affected local builds, while making the setting's intent ambiguous to anyone
+# reading the manifest.
+#
+# If a future artifact genuinely needs abort-on-panic for size, it should get its
+# own profile at the point someone has measured that it would help.
 
 # Size-first WASM profile: no per-crate hacks, single policy.
 [profile.wasm-release]

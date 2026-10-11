@@ -3,6 +3,136 @@
 All notable changes to Hikari. Versions match the workspace `version` and
 the `hikari-rs` facade crate.
 
+## v0.21.9 — deterministic fallback, a frozen CSS spec, and a real CI matrix
+
+This release is mostly about correcting things that were claimed rather than
+things that were missing. Five of the six items were calls to stop overclaiming.
+
+### Fixed — CJK output depended on the machine
+
+The default path read a font from a hard-coded list of host paths when no bundled
+face covered a character:
+
+```
+/Library/Fonts/Arial Unicode.ttf
+/System/Library/Fonts/Supplemental/Arial Unicode.ttf
+/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc
+/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc
+```
+
+So the same tree produced different bytes on a developer Mac and a CI container —
+while the crate advertised byte-identical output on every platform. Nothing
+reported it: the render succeeded, the tests passed, and the only symptom was a
+digest that matched on one machine and not another. CJK was the trigger in
+practice, because that is what the embedded subset does not cover.
+
+**`hikari::FallbackPolicy`**, defaulting to `Bundled`:
+
+| Policy | A character no bundled face covers | Deterministic |
+|---|---|---|
+| `Bundled` | not drawn — `.notdef` | yes |
+| `Strict` | an error naming the character | yes |
+| `SystemFont` | read from a host path | **no** |
+
+`Bundled` and `Strict` return without touching the filesystem, which is asserted
+directly rather than inferred. `SystemFont` keeps the old capability available and
+*chosen*, which is the difference between a feature and a defect.
+
+CJK still renders only with the `bundled-cjk` feature (9,968,236 B; measured WASM
+3,693,596 B without, 13,661,814 B with). Without it the output is deterministic
+and shows `.notdef` boxes, which is the trade taken: a card that silently differs
+between machines is worse than a card with a visible gap.
+
+### Added — a frozen CSS spec with a conformance suite
+
+`docs/css-spec.json`, generated from tables in `crates/hikari-core/src/spec.rs`,
+with `spec::conformance` checking them against the parser.
+
+**The first draft of the table listed 32 properties the parser does not support.**
+`opacity`, `text-align`, `z-index`, `max-height`, `transform` and 27 others are
+matched by the dispatcher only in order to *refuse* them with a specific reason
+("use an rgba colour with alpha instead"), and the hand-written table listed them
+as supported. The conformance test caught it on its first run, which is the
+argument for having written it before publishing the table.
+
+The spec is now two tables — `SUPPORTED` and `REPORTED` — and the suite asserts
+every supported property is accepted, every reported one still refuses *with the
+same reason*, the tables do not overlap, and both are sorted and unique.
+
+The first attempt at generating the JSON scraped `css.rs` with a regular
+expression. It produced 89 properties including `white`, `block` and `fixed`
+(values of other properties, matched at the same indentation) while *missing*
+`filter`, whose arm is written `"filter" | "backdrop-filter" =>`. A spec with those
+errors is worse than none, so the extraction was replaced by Rust tables.
+
+### CI — sixteen jobs, most of them new
+
+- **`platform`** — the full test suite on Linux x86_64, Linux arm64, macOS arm64,
+  macOS x86_64 and Windows.
+- **`determinism`** — same tree, five targets, byte-identical output. This is the
+  job that would have caught the CJK defect and could not, because it ran on one
+  runner with the font installed. Those runners deliberately have no CJK font, so
+  the difference cannot hide.
+- **`node`** — Node 18/20/22/24 across Linux, macOS and Windows.
+- **`verapdf`** — veraPDF 1.30.3 over a fixture built by the `pdfa_fixture`
+  example. **The gate has not been observed green, so PDF/A conformance is still
+  not claimed.** See below.
+- **`fuzz`** — `cargo-fuzz` over the CSS/HTML parsers and the PDF writer,
+  bounded to 90 s. The PDF target needed a public `subset_font_for_text` to reach
+  the table-walking subsetter at all.
+- **`bench-linux`** — a Linux measurement for BENCHMARKS.md, uploaded as an
+  artifact. Asserts nothing: a shared runner is too noisy for a threshold.
+- **`bench-gate`** — a real criterion gate, on self-hosted runners only. Shared
+  runners vary by more than any threshold worth having.
+- **`wasm-browser`** — Playwright/Chromium against the real web-target bundle.
+- **`supply-chain`** — `cargo audit` alongside `cargo deny`, and a CycloneDX SBOM.
+
+### Removed — `panic = "abort"` from the release profile
+
+It was in the wrong place: a Cargo profile applies to every crate built from the
+workspace, so it put abort-on-panic into the library rlibs. A library that
+carries that into a link is a library deciding its consumers' panic behaviour.
+
+Measuring it first changed the argument. **It is worth 264 bytes** — 3,693,596
+unwind, 3,693,332 abort — and two claims I had written down about it were wrong:
+it does *not* break `cargo test --release` (Cargo forces `unwind` for test
+harnesses), and it is not worth 63 KB. Both are recorded in `Cargo.toml` so they
+are not repeated.
+
+### Fixed — documentation drift
+
+`crates/hikari-raster/src/lib.rs` still said `rustybuzz` eleven releases after the
+shaper moved to `harfrust`, as did the `hikari-core` shaping module doc. The
+historical references to `rustybuzz` in the shaper's comments are *deliberate* —
+they explain why the code is shaped the way it is — and stay.
+`plans/construction-plan.md` now opens with a note that it is a dated record.
+
+### Decided — PDF/UA is out of scope for 1.0
+
+Not deferred. Tagged PDF requires a structure tree, a parent tree, marked content
+on every text run, `/Alt`, `/Lang` and correct heading nesting — which changes
+the shape of every paint operation in `hikari-pdf` rather than adding a parameter.
+
+The deciding factor is that PDF/UA's purpose is WCAG conformance, and no
+validator can check that. A checker confirms tags are present and nested; it
+cannot tell whether an `alt` describes the figure or says "image". Building it
+would mean emitting structure without being able to say whether the result is
+accessible, and this project's rule is that a feature is either verified or not
+claimed.
+
+### Not done — a head-to-head benchmark
+
+BENCHMARKS.md previously promised one and did not have it. It now says so
+explicitly, with the three reasons a fair comparison has not been earned here:
+equivalent input (HTML/CSS vs SVG vs a typed tree), equivalent output (needs a
+pixel-diff harness), and a machine neither project controls.
+
+What was fixed instead is the part that was rot: every stage quoted in the
+document now corresponds to a `bench_function`, and the benchmark **refuses to
+run under a debug build** — the failure that made the v0.7 comparison wrong.
+
+---
+
 ## v0.21.8 — PDF/A-1b structural metadata
 
 ### Added

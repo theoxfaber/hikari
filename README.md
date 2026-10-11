@@ -447,14 +447,33 @@ Stated plainly, because a limitations section that hedges is worse than none.
   Sans Hebrew cover all 43 Hebrew codepoints including niqqud. A subsetted
   [Noto Sans Hebrew](https://github.com/notofonts/hebrew) is now bundled (57 KB
   after subsetting, OFL) so the coverage is ours rather than the host's.
-- **CJK depends on system fonts by default.** Enable the `bundled-cjk` cargo
-  feature to embed a subsetted OFL CJK face and make output deterministic
-  without a system font. It is opt-in because the subset is 9,968,236 bytes,
-  which would dwarf the 2.8 MB WebAssembly build; the source is fetched by
-  `scripts/fetch-bundled-fonts.sh cjk` rather than committed. Without it, CJK
-  reaches a *system* font, so a render may differ between machines — the
-  determinism guarantee below covers every script the embedded faces cover, and
-  CJK only when this feature is on.
+- **CJK is not drawn by default; it is not drawn from a system font either.**
+  This changed in v0.21.9 and the previous behaviour was a real defect: with no
+  bundled CJK face, the renderer read a font from a hard-coded list of host paths,
+  so the same tree produced different bytes on a developer's Mac and a CI
+  container. The crate advertised byte-identical output on every platform and was
+  silently breaking it for any tree containing a character the embedded subset
+  does not cover.
+
+  `hikari::FallbackPolicy` makes that explicit:
+
+  | Policy | A character no bundled face covers | Deterministic |
+  |---|---|---|
+  | `Bundled` (default) | not drawn — `.notdef` | yes |
+  | `Strict` | an error naming the character | yes |
+  | `SystemFont` | read from a host path | **no** |
+
+  To actually render CJK, enable the `bundled-cjk` cargo feature: it embeds a
+  subsetted OFL CJK face, 9,968,236 bytes, which would more than triple the
+  WebAssembly bundle (measured: 3,693,596 B without, 13,661,814 B with). The
+  source is fetched by `scripts/fetch-bundled-fonts.sh cjk` rather than
+  committed. So the honest summary is: **CJK renders only with that feature
+  enabled, and without it the output is deterministic and shows `.notdef`
+  boxes** — which is the trade this crate takes, because a card that silently
+  differs between two machines is worse than a card with a visible gap.
+
+  `Strict` is the setting for a pipeline that would rather fail than ship a
+  card with a hole in it.
 - **No dependency is declared unmaintained.** `rustybuzz`, `ttf-parser` and
   `fontdue` are all gone; `deny.toml` ignores nothing and `unmaintained = "all"`
   stays on as a gate, so the next crate that declares itself unmaintained fails
@@ -471,21 +490,44 @@ Stated plainly, because a limitations section that hedges is worse than none.
   `brightness`, `contrast`, `saturate`, `grayscale`, `sepia`, `invert` and
   `opacity`. Blur, `drop-shadow`, `hue-rotate` and `url()` are **reported as
   skipped**, never silently dropped. This is a layout tree, not a CSS engine.
-- **PDF/A output has not been validated against a PDF/A conformance checker.**
+- **PDF/A conformance is not claimed, because the checker has not run.**
   `PdfOptions::pdfa` adds the parts a generator can satisfy by construction --
   an output intent with a generated sRGB ICC profile, an XMP packet declaring
   `pdfaid:part` 1 and conformance B, and a content-derived document identifier --
-  and tests verify each of those is present and well-formed. That is the whole
-  of the claim. A checker may still reject the output for something not visible
-  in the byte stream, such as a font program missing a required table. Run one
-  before relying on it for archival use.
-- **PDF/UA is not implemented and is not planned as a metadata addition.** It
-  requires tagged PDF: a structure tree, marked content on every text run,
-  `/Alt` on figures, `/Lang` on the document. That is a different
-  content-generation model, not extra metadata. And the point of PDF/UA is WCAG
-  conformance, which no validator can check -- a validator confirms tags are
-  present and nested, not that an alternative text is any good. Claiming it would
-  mean claiming accessibility this renderer cannot verify.
+  and tests verify each of those is present and well-formed. That is the whole of
+  the claim.
+
+  A `verapdf` CI job now runs veraPDF 1.30.3 (official image, pinned) over a
+  fixture built by the `pdfa_fixture` example and fails unless veraPDF confirms
+  PDF/A-1b. **That job has not yet been observed green**, so the output is not
+  described here as conformant -- the difference between "the job exists" and
+  "the job passed" is exactly the distinction this project is trying to keep
+  making. Until a run is green, run veraPDF yourself before relying on it for
+  archival use.
+- **PDF/UA is explicitly out of scope for 1.0.** Not deferred, not "coming" --
+  decided, with a reason, so nobody re-litigates it each release.
+
+  It requires *tagged* PDF: a `/StructTreeRoot` structure tree, a `/ParentTree`
+  mapping it to page content, marked-content operators (`/P`, `/H1`, `/Span`)
+  wrapping every text run, `/Alt` on figures, `/Lang` on the document, and
+  correct heading nesting. None of that is metadata bolted onto an existing
+  writer -- every paint operation in `hikari-pdf` would have to emit marked
+  content paired with a tag, so `paint_box` and `paint_text` change shape
+  rather than gaining a parameter. That is a rewrite of the content model, not a
+  feature.
+
+  The deciding factor is the second half. The purpose of PDF/UA is WCAG
+  conformance, and *no validator can check that*. A checker confirms tags are
+  present, correctly nested and reference existing objects; it cannot tell
+  whether an `alt` text describes the figure or says "image". So shipping tagged
+  PDF would mean emitting structure without being able to say whether the
+  result is accessible -- and this project's rule is that a feature is either
+  verified or not claimed. An accessible-PDF claim here would be the one claim
+  in the README nothing could check.
+
+  What a caller who needs it should do: render with `hikari`, post-process with
+  a tool that does accessibility properly, and treat that tool as the thing
+  responsible for the claim.
 - **No ecosystem yet.** No star history, no adopters, no battle-tested corpus.
   The determinism work exists precisely to make that corpus possible.
 - **The project is days old.** Every commit was made between 2026-09-29 and
@@ -539,6 +581,12 @@ Ordered by what most limits the project, not by what is easiest.
       and `/FontDescriptor` are byte-identical to what `ttf-parser` produced, and
       are now pinned by tests because nothing else in the suite would notice them
       changing.
+- [x] **Deterministic font fallback.** `hikari::FallbackPolicy`. The default
+      never reads a host font: a character no bundled face covers is not drawn,
+      and the result is identical on a machine with CJK fonts installed and one
+      without. `Strict` turns an uncovered character into a named error instead of
+      a blank box. `SystemFont` restores the old behaviour, explicitly and
+      opt-in. See Limitations — this closed a real determinism hole.
 - [x] **Bundle OFL Hebrew and CJK-covering fonts.** A layout-preserving subset
       of Noto Sans Hebrew is always bundled (57 KB), and Noto Sans SC is
       available behind the opt-in `bundled-cjk` feature (9,968,236 B, fetched by
@@ -598,11 +646,22 @@ Ordered by what most limits the project, not by what is easiest.
       with a generated 500-byte sRGB ICC profile, XMP declaring `pdfaid:part` 1
       and conformance B, and a content-derived trailer `/ID`. **Not validated
       against a conformance checker** -- see Limitations.
-- [ ] **PDF/A conformance validation.** Running a real checker (veraPDF or
-      equivalent) in CI would turn "the metadata is present and well-formed"
-      into "the file is PDF/A". Nothing here asserts the latter.
-- [ ] **PDF/UA.** Tagged PDF. See Limitations for why it is not a metadata
-      addition.
+- [~] **PDF/A conformance validation.** A `verapdf` CI job runs veraPDF 1.30.3
+      (the official Docker image, pinned) over a fixture built by the
+      `pdfa_fixture` example, and fails unless veraPDF confirms PDF/A-1b.
+      **The gate has not yet been observed green**, so conformance is still not
+      claimed — see Limitations.
+- [ ] **PDF/UA.** **Decided out of scope for 1.0**, with reasons recorded in
+      Limitations. Tagged PDF is a rewrite of the content model, and WCAG
+      conformance is not mechanically checkable, so it could not be verified here
+      even if it were built.
+- [x] **A frozen CSS spec with a conformance suite.**
+      `docs/css-spec.json` is generated from the tables in
+      `crates/hikari-core/src/spec.rs`, and `spec::conformance` asserts every
+      supported property is accepted *and* every recognised-and-refused property
+      still refuses with the same reason. Writing the first draft of the table by
+      hand listed 32 properties the parser only matches in order to refuse them,
+      which is what the suite caught.
 
 Shipped in v0.18: shaping and bidi with CJK fallback, grid and image nodes,
 gradients, PNG and SVG, animated GIF and APNG, lossless WebP, the full PDF

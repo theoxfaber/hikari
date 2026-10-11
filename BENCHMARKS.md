@@ -9,24 +9,62 @@ marketing, not measurement.
 
 | | |
 |---|---|
-| Machine | Apple M2, macOS ARM64 |
+| Machine | Apple M2, macOS ARM64, 8 GB |
 | Toolchain | rustc 1.98.0, release profile (`lto = true`, `codegen-units = 1`) |
-| Reference card | 1200×630, gradient background, two text runs, one wrapping |
 | Reproduce | `cargo bench -p hikari-rs --bench render` |
 
-## Render timing
+**Every number below is a criterion run on the machine above.** The benchmark
+refuses to run under a debug build — `assert_release_build()` in
+`crates/hikari/benches/render.rs` checks `cfg!(debug_assertions)` and panics with
+an explanation. That check exists because v0.7 published a comparison taken from
+a debug build; a debug benchmark produces a plausible number rather than an
+obvious failure, which is the worst failure mode available for a measurement.
 
-| Stage | Cold (first in process) | Warm |
-|---|---|---|
-| Layout | 0.66 ms | 0.10 ms |
-| Paint → RGBA | — | 3.06 ms |
-| Paint + PNG encode | 13.59 ms | 5.44 ms |
-| **Full `render_png`** | **14.3 ms** | **3.69 ms** |
+## Render timing — 1200×630
 
-Cold start is dominated by first-touch font rasterization, which is what the
-build-time subset and the glyph bitmap cache exist to reduce. Warm numbers
-benefit from the glyph cache; hit counters are asserted in tests, so a
-regression there fails rather than quietly costing time.
+| Case | Time (criterion 95% CI) |
+|---|---|
+| `banner/layout` | 3.92 – 3.97 µs |
+| `banner/paint_to_rgba` | 1.821 – 1.825 ms |
+| `banner/png` (layout + paint + encode) | 3.532 – 3.537 ms |
+| `text_card/png` | 3.547 – 3.642 ms |
+| `text_card/svg` | 18.91 – 19.03 µs |
+
+PNG encoding is therefore about 1.71 ms of the 3.53 ms — roughly half. Paint is
+about 1.82 ms and layout is under 4 µs, which is three orders of magnitude below
+the total and not worth optimising in isolation.
+
+`banner` is a flat banner with one text run. `text_card` is three heading/body
+pairs on a light panel. They render in the same time to within about 1%, and
+their outputs differ (8,117 B vs 8,250 B, different digests). That is worth
+stating rather than hiding: at this canvas size the cost is dominated by touching
+every pixel, not by how much text is on it. A benchmark that varied only the text
+and reported no difference is measuring the fill, and pretending otherwise would
+be the kind of "optimisation" that lands on the wrong part of the pipeline.
+
+## What this document does not contain
+
+**No comparison against any other renderer.** v0.7 published one, it was taken
+from a debug build, and it was withdrawn. This document does not replace it with
+a fairer one.
+
+The reason is not that the comparison would be unflattering. It is that a fair
+one has to be *earned*, and this document has no budget to earn it:
+
+- **Equivalent input.** Satori takes an HTML/CSS document, resvg takes SVG. This
+  library takes a typed node tree. A benchmark that ports the tree into their
+  input format is measuring the port as much as the renderer, and a benchmark
+  that skips the port is measuring something neither of them does.
+- **Equivalent output.** Any comparison needs both sides producing the same
+  image. Matching that closely enough to attribute a time difference to the
+  renderer rather than to the pixels needs a pixel-diff harness, which is its own
+  piece of work and its own source of disagreement about who won.
+- **A machine neither of us controls.** Numbers on a shared CI runner vary by
+  more than the differences being claimed.
+
+All three can be done. None is done here, and until one is, a number in this
+document comparing against anything else would be an assertion rather than a
+measurement — which is the thing this document exists to avoid.
 
 ## Output size
 
@@ -88,13 +126,18 @@ Reference cross-check: PIL with `optimize=True` on the same pixels produced
 Same tree, same bytes, on every platform. This is the property that makes a
 golden-image suite possible for anyone downstream.
 
-| Target | PNG (21,649 B) | SVG (738 B) |
-|---|---|---|
-| macOS ARM64 | `ec287845…ba27993` | `57c9a893…8f79137` |
-| Linux x86_64 | `ec287845…ba27993` | `57c9a893…8f79137` |
+**There are no digest rows in this table any more, deliberately.** Every digest
+is in `crates/hikari/tests/determinism.sha256`, and the `determinism` CI job runs
+across five targets — Linux x86_64, Linux arm64, macOS arm64, macOS x86_64,
+Windows x86_64 — failing on any mismatch. A digest reprinted here would be a
+second copy that can drift from the first.
 
-Full digests live in `crates/hikari/tests/determinism.sha256` and CI fails on
-drift.
+That job is also what would have caught the CJK defect fixed in v0.21.9, where
+output depended on whether a CJK font happened to be installed on the machine.
+It could not, because it only ran on one runner *with* the font installed. Five
+targets across three operating systems and two architectures is the minimum for
+"everywhere" to mean anything, and the runner in this matrix deliberately has no
+CJK font installed so the difference cannot hide.
 
 **These digests changed in v0.18, and the previous ones were wrong.** They were
 `7f97ec62…` / `b30db642…` at 21,628 B. v0.18 fixed the embedded font subset,
@@ -102,11 +145,6 @@ which had been dropping `GSUB`/`GPOS`/`GDEF`, and the paint path, which had
 been looking glyphs up by source character instead of by the shaper's glyph id.
 Kerning and ligatures now actually apply to the reference card, so glyph
 positions changed and the bytes changed with them.
-
-The Linux row above has not been re-run since that change. The macOS row is
-reproduced on every CI run; the Linux one is recorded from the run that verified
-it. We would rather mark a row unverified than reprint a hash we have not
-reproduced.
 
 ## Golden image corpus
 
@@ -140,6 +178,7 @@ inside one opaque image.
 | `blend-screen-text` | 1,286 | a blend mode reaching the glyph path, not just fills |
 | `shadow-inset-top` | 2,744 | an inset shadow staying inside the silhouette |
 | `shadow-inset-edge` | 1,877 | the hard-edged inset variant ignoring any blur radius |
+| `filter-grayscale-invert` | 3,366 | colour filters applied to a whole subtree, not per element |
 
 **A digest proves stability, not correctness.** A blank render is exactly as
 stable as a correct one, and gets blessed just as happily. So each case is also

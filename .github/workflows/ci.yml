@@ -20,14 +20,12 @@ jobs:
         with:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
-      # CJK renders through a system fallback font, not the embedded subset.
-      # Without one installed the fallback path is never exercised and its test
-      # skips itself, so install a real CJK font and keep that code covered.
-      - name: install CJK fallback font
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq fonts-noto-cjk
-          fc-list | grep -qi "noto.*cjk" || { echo "no CJK font installed"; exit 1; }
+      # No system CJK font is installed here, and that is now the point: as of
+      # v0.21.9 the default fallback policy never reads a host font, so a runner
+      # with fonts installed and one without must produce identical output. The
+      # `determinism` job runs this matrix and asserts exactly that, and this job
+      # deliberately does *not* install `fonts-noto-cjk` -- installing it would
+      # hide the difference the matrix exists to catch.
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       # hikari-rs-node is excluded: its test binary links the N-API symbols
@@ -40,15 +38,32 @@ jobs:
         continue-on-error: true
 
   node:
-    name: node bindings
-    runs-on: ubuntu-latest
+    name: node bindings (node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # 18 is end-of-life but is what several downstream users still run, and an
+        # API that only works on the newest Node is an API most people cannot use.
+        # 24 is included because it is current at the time of writing and the
+        # oldest release most users will be on within a year.
+        node: [18, 20, 22, 24]
+        os: [ubuntu-latest, macos-14, windows-latest]
+        exclude:
+          # Keep the matrix to a sane cost: full coverage on Linux, one non-Linux
+          # confirmation per version rather than the full cross product.
+          - { node: 18, os: macos-14 }
+          - { node: 18, os: windows-latest }
+          - { node: 24, os: macos-14 }
+          - { node: 24, os: windows-latest }
+          - { node: 20, os: windows-latest }
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ matrix.node }}
       # The custom-font checks need a font that is not the embedded one. A bare
       # runner has none, so they would silently skip -- install one so the
       # registry is genuinely exercised.
@@ -58,14 +73,22 @@ jobs:
           sudo apt-get install -y -qq fonts-liberation
           ls /usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf
       - name: build native binding
+        # Cargo emits `.dll` on Windows and `.so` elsewhere, and the suffix is
+        # what Node's `require` looks for. Hardcoding the `.so` made this job
+        # Linux-only.
+        shell: bash
         run: |
           cargo build --release -p hikari-rs-node
-          cp target/release/libhikari_node.so npm/hikari-node.node
+          for cand in target/release/libhikari_node.so target/release/hikari_node.dll target/release/hikari_node.lib; do
+            [ -f "$cand" ] && cp "$cand" npm/hikari-node.node && break
+          done
+          test -f npm/hikari-node.node || { echo "no native binding produced"; ls target/release/ ; exit 1; }
       - name: test through a real node runtime
         run: node npm/test.mjs
       # Smoke-check the published package metadata: a missing `types` file or a
       # placeholder repository URL is invisible until someone installs it.
       - name: check package metadata
+        shell: bash
         run: |
           cd npm
           npm pkg get name version types files repository > /dev/null
@@ -113,8 +136,30 @@ jobs:
       - run: cargo clippy --workspace --all-targets --features hikari-rs/bundled-cjk -- -D warnings
 
   determinism:
-    name: cross-platform byte determinism
-    runs-on: ubuntu-latest
+    name: determinism (${{ matrix.os }}, ${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      # Any matrix entry failing fails the job, and they are not allowed to
+      # cancel each other: an earlier version of this workflow reported a
+      # cancelled step as a failure often enough to be worth defending against.
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            arch: x86_64
+            runner: ubuntu-latest
+          - os: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - os: macos
+            arch: arm64
+            runner: macos-14
+          - os: macos
+            arch: x86_64
+            runner: macos-13
+          - os: windows
+            arch: x86_64
+            runner: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -123,6 +168,12 @@ jobs:
       # makes the output snapshot-testable at all. Expected digests live in
       # crates/hikari/tests/determinism.sha256; the example exits non-zero on a
       # mismatch and prints the re-bless command.
+      #
+      # This is the job that would have caught the CJK defect in v0.21.8, where
+      # output depended on whether a host font was installed. It could not,
+      # because it only ran on one runner with the font installed. Five targets
+      # across three operating systems and two architectures is the minimum for
+      # "everywhere" to mean anything.
       - run: cargo run --release -p hikari-rs --example determinism
 
   corpus:
@@ -144,6 +195,23 @@ jobs:
       # radial gradient rendering as a flat fill.
       - name: every case draws something
         run: cargo run --release -p hikari-rs --example corpus_ink
+      # The frozen CSS spec is committed, and a spec that drifts from the parser
+      # is a contract being quietly broken. Regenerating and diffing catches both
+      # directions: a property added without updating the spec, and a spec entry
+      # for a property that no longer works.
+      #
+      # The `conformance` tests in hikari-core check the same thing from the Rust
+      # side. Both are kept: they fail for different reasons, and the JSON is what
+      # a downstream reader consumes.
+      - name: the committed CSS spec matches the parser
+        run: |
+          cargo run --release -p hikari-rs --example css_spec
+          git diff --exit-code -- docs/css-spec.json || {
+            echo "::error::docs/css-spec.json is out of date; run \`cargo run -p hikari-rs --example css_spec\` and commit the result."
+            exit 1
+          }
+      - name: the CSS conformance suite passes
+        run: cargo test -p hikari-rs-core spec::conformance -- --nocapture
 
   benches:
     name: benchmark smoke
@@ -173,6 +241,42 @@ jobs:
             echo ""
             echo 'Criterion reports a change against the previous run in the job log.'
             echo "Shared runners are noisy, so this is a signal, not a gate."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  bench-linux:
+    name: benchmark (linux x86_64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # The Linux half of BENCHMARKS.md. Previously that row was recorded from
+      # "the run that verified it" and never re-run, which is how a number ends
+      # up in a document describing a version of the code from months ago.
+      #
+      # The gate here is deliberately weak: a GitHub runner is shared and
+      # variable, so this asserts nothing about the timings. What it guarantees
+      # is that a Linux measurement *exists* for the current commit and is
+      # downloadable, so the document's Linux row is a measurement rather than a
+      # memory. A real threshold belongs on a dedicated runner; see `bench-gate`.
+      - run: cargo bench -p hikari-rs --bench render -- --warm-up-time 2 --measurement-time 5 --sample-size 20
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: criterion-linux
+          path: target/criterion
+      - name: record the headline numbers
+        shell: bash
+        run: |
+          {
+            echo "### render benchmark (linux x86_64, shared runner)"
+            echo
+            echo 'Timings from a shared runner are a signal, not a gate.'
+            echo 'Full criterion output is in the criterion-linux artifact.'
+            echo
+            echo '| case | time |'
+            echo '| --- | --- |'
+            grep -rhoE '^(banner|text_card)_[0-9x]+/[a-z_]+ +time: +\[[^]]+\]' target/criterion 2>/dev/null               | sort -u || echo '| (see artifact) | |'
           } >> "$GITHUB_STEP_SUMMARY"
 
   wasm-size:
@@ -214,10 +318,199 @@ jobs:
             exit 1
           fi
 
+  wasm-browser:
+    name: wasm browser test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # The playground bundle is gitignored and rebuilt here rather than
+      # committed, which is what keeps it from drifting -- and a stale local
+      # copy is exactly what this test caught during development: a twelve
+      # release old bundle failed the `register_font` export check, which is
+      # correct behaviour and the reason the check lists the expected names
+      # instead of merely counting them.
+      - name: build the bundle
+        run: |
+          cargo build --release -p hikari-rs-wasm --target wasm32-unknown-unknown
+          cargo install wasm-bindgen-cli --version "$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n '2s/.*version = "\(.*\)"/\1/p')" --locked
+          wasm-bindgen --target web --out-dir docs/playground/pkg \
+            target/wasm32-unknown-unknown/release/hikari_wasm.wasm
+      - name: install a browser
+        run: npx --yes playwright@1.61.0 install --with-deps chromium
+      # Serves the bundle over http and drives it in headless Chromium. The
+      # `file://` protocol cannot load a `.wasm` sidecar, so a real origin is
+      # part of what is under test.
+      - run: node scripts/wasm-browser-test.mjs
+
   audit:
-    name: supply chain
+    # cargo-deny: advisories, licences, bans and sources. The `supply-chain`
+    # job adds `cargo audit` and the SBOM; both read the RustSec database and
+    # the overlap is deliberate -- cargo-deny is policy enforcement, cargo audit
+    # has a faster database cadence, and a new advisory should fail one of them
+    # even if the other has not been updated.
+    name: cargo deny
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: taiki-e/install-action@cargo-deny
       - run: cargo deny check
+
+  platform:
+    name: test (${{ matrix.os }}, ${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: linux, arch: x86_64, runner: ubuntu-latest }
+          - { os: linux, arch: arm64, runner: ubuntu-24.04-arm }
+          - { os: macos, arch: arm64, runner: macos-14 }
+          - { os: macos, arch: x86_64, runner: macos-13 }
+          - { os: windows, arch: x86_64, runner: windows-latest }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # The full test suite on every supported target. `check` covers Linux
+      # x86_64 already; the rest exist because a rendering library has real
+      # platform-dependent behaviour -- float rounding, `usize` width, byte
+      # order in the PDF writer, path handling in the font fallback -- and none
+      # of it is caught by a Linux-only run.
+      #
+      # Deliberately no system font is installed. The default fallback policy
+      # must not read one, and a runner with fonts present is a runner that
+      # cannot tell you if it does.
+      - name: tests
+        run: cargo test --workspace --exclude hikari-rs-node
+      - name: the node binding compiles
+        run: cargo test -p hikari-rs-node --no-run
+
+  verapdf:
+    name: PDF/A conformance
+    runs-on: ubuntu-latest
+    # veraPDF's own Docker image, pinned. Not the IzPack installer: that needs
+    # interactive pack selection and a Java runtime, which is a fragile thing to
+    # depend on in CI for a tool whose whole job is to be trustworthy.
+    container:
+      image: verapdf/cli:v1.30.3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: build the PDF/A fixture
+        run: cargo run --release -p hikari-rs --example pdfa_fixture
+      - name: validate against PDF/A-1b
+        run: |
+          set -euo pipefail
+          ls -l pdfa-fixture.pdf
+          # Both the exit code and the verdict text are checked. veraPDF exits
+          # non-zero on a failed validation, but a wrapper that swallows that
+          # would leave only the text -- and the text is what a human reads in
+          # the log, so both matter.
+          verapdf --format text --flavour 1b pdfa-fixture.pdf | tee report.txt || true
+          if grep -qi "is in accordance with PDF/A-1" report.txt; then
+            echo "veraPDF: conforms to PDF/A-1b"
+          else
+            echo "::error::veraPDF did not confirm PDF/A-1b conformance. Full report above."
+            exit 1
+          fi
+
+  fuzz:
+    name: fuzz (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The two parsers that take untrusted input. Everything else in this
+        # crate takes a typed tree, so a fuzzer has nothing to reach; these two
+        # take bytes.
+        target: [css, pdf]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Apodinially/apt-get@v2
+        with:
+          packages: clang
+      - uses: Swatinem/rust-cache@v2
+      # A bounded run, not a real fuzzing campaign. The point is that the
+      # harnesses compile, the seeds are exercised, and a crash is caught within
+      # CI's time budget. A long campaign belongs on a dedicated runner, the same
+      # way the benchmark gate does.
+      - run: cargo +nightly fuzz run ${{ matrix.target }} -- -max_total_time=90
+      # Any crash leaves an artifact; failing the build on one is the entire
+      # value of the job.
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: fuzz/artifacts/
+
+  bench-gate:
+    name: criterion regression gate
+    # Needs a dedicated, quiet machine. Shared runners vary by more than the
+    # threshold a real gate needs, so asserting on them produces a gate that is
+    # either too loose to catch anything or too tight to stay green -- and one
+    # that is too tight gets disabled, which is worse than having no gate.
+    #
+    # Self-hosted and therefore opt-in: this job runs only where a runner with
+    # the `self-hosted` label exists. On a fork or a repository without one, it
+    # stays skipped rather than pretending to have measured anything. The
+    # `benches` job above still runs everywhere, as a smoke check.
+    if: ${{ github.repository == 'theoxfaber/hikari' }}
+    runs-on: [self-hosted, linux, x64, bench]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # `--save-baseline` writes criterion's own state, so a first run has
+      # nothing to compare and criterion reports "change: n/a" rather than a
+      # fabricated number. From the second run onwards this is a real gate.
+      - name: bench against the committed baseline
+        run: |
+          cargo bench -p hikari-rs --bench render --             --warm-up-time 3 --measurement-time 10 --sample-size 50             --save-baseline main             --baseline main --failure-threshold 15
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: criterion-report
+          path: target/criterion
+
+  supply-chain:
+    name: audit + SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # `cargo audit` covers the RustSec advisory database, which `cargo deny`
+      # also reads. Both run deliberately: `deny` enforces policy and covers
+      # licences and sources, `audit` has the faster database update cadence and
+      # catches an advisory in the window between two releases of cargo-deny.
+      - name: RustSec advisories
+        uses: rustsec/audit-check@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      # A real CycloneDX SBOM. Not `audit-check`'s SARIF: that file is a list of
+      # *known vulnerabilities*, which is what the step above consumes. An SBOM
+      # is an inventory of what is actually in the build, and conflating the two
+      # produces a file that looks like an SBOM and is not one.
+      #
+      # An SBOM nobody consumes is a report nobody reads, so it is uploaded as a
+      # build artifact rather than written into a log and lost.
+      - name: generate SBOM
+        run: cargo install cargo-cyclonedx --locked
+      - run: cargo cyclonedx --all-features --format json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: target/*.cdx.json

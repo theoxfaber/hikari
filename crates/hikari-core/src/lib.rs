@@ -18,6 +18,8 @@ pub use font::{
 /// A CSS subset parser and an HTML-ish front end.
 pub mod assets;
 pub mod css;
+pub mod policy;
+pub mod spec;
 pub mod ui;
 
 // Both modules below contain only `#[test]` items, so compiling them in a
@@ -38,6 +40,8 @@ mod shaping_path_tests;
 pub use cache::{hash_bytes, hash_node, HashCache};
 pub use error::Error;
 pub use flow::{paginate, Flow};
+pub use font::glyph_index_in;
+pub use policy::{fallback_policy, set_fallback_policy, FallbackPolicy};
 pub use shape::{
     balance_text, fallback_font_bytes, fit_font_size, font_bytes, line_height, measure_text,
     shape_text, wrap_text, PlacedAdvance,

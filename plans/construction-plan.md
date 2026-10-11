@@ -1,3 +1,8 @@
+<!-- HISTORICAL. This is the plan as it stood at the start of the
+     project. Several decisions below were later reversed -- the shaper moved
+     from `rustybuzz` to `harfrust`, and `ttf-parser` is gone. Kept as a record
+     of what was decided and why, not as a description of the current tree. -->
+
 # Construction plan
 
 How this project gets built, and what "done" means at each step. Kept in the

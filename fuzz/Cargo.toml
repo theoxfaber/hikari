@@ -1,0 +1,33 @@
+[package]
+name = "hikari-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+# `cargo check` on this manifest needs *something* to look at, and the real
+# targets are `fuzz_targets/*.rs`, which `cargo-fuzz` compiles with the
+# sanitizer flags rather than as ordinary binaries. An empty lib is what
+# cargo-fuzz's own template ships, for exactly this reason.
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.hikari-rs]
+path = "../crates/hikari"
+
+[dependencies.hikari-rs-core]
+path = "../crates/hikari-core"
+
+[dependencies.hikari-rs-pdf]
+path = "../crates/hikari-pdf"
+
+# Fuzz targets are excluded from the workspace so a `cargo test --workspace` on
+# the library does not try to build libfuzzer-sys, and so `cargo deny` does not
+# have to know about it.
+[workspace]
+members = ["."]

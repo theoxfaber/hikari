@@ -1,12 +1,10 @@
-//! Upstream text shaping: `rustybuzz` advances + `unicode-bidi` visual order.
+//! Upstream text shaping: `harfrust` advances + `unicode-bidi` visual order.
 //!
 //! One embedded font (`assets/DejaVuSans.ttf`) is the single source of truth
 //! for both measurement (here) and rasterization (`hikari-raster`), so layout
 //! and paint agree. Complex-script joining is best-effort in v0.2: runs are
 //! shaped per bidi run with correct direction; full itemization with per-font
 //! fallback is Step 1b in `plans/hikari-beat-takumi.md`.
-
-use std::sync::OnceLock;
 
 use harfrust::{Buffer, Direction, ShapeOptions};
 
@@ -71,22 +69,18 @@ fn cjk_face() -> Option<(&'static str, &'static [u8])> {
 
 /// System CJK-capable fallback bytes, loaded lazily, as a last resort.
 ///
-/// Only consulted when no bundled face covers a character — a rare case, since
-/// the bundled faces cover the scripts this library claims to render. It is
-/// deliberately *not* deterministic: two machines may load different files, or
-/// none. Anything relying on byte-identical output must bundle the face it needs
-/// rather than depend on this.
+/// # Returns `None` unless [`FallbackPolicy::SystemFont`] is set
+///
+/// This used to read a hard-coded list of host font paths unconditionally, which
+/// made output depend on the machine while the crate advertised
+/// byte-identical output on every platform. It is now gated on an explicit
+/// opt-in; see [`crate::policy`] for the whole argument.
+///
+/// Under the default [`FallbackPolicy::Bundled`] this returns `None` *without
+/// touching the filesystem*, so a CJK character is simply not drawn and the
+/// result is the same on every machine.
 pub fn fallback_font_bytes() -> Option<&'static [u8]> {
-    static BYTES: OnceLock<Option<Vec<u8>>> = OnceLock::new();
-    const CANDIDATES: &[&str] = &[
-        "/Library/Fonts/Arial Unicode.ttf",
-        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
-    ];
-    BYTES
-        .get_or_init(|| CANDIDATES.iter().find_map(|p| std::fs::read(p).ok()))
-        .as_deref()
+    crate::policy::fallback_font_bytes()
 }
 
 /// Line height multiplier for stacked lines.

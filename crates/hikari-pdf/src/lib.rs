@@ -15,8 +15,8 @@ use skrifa::MetadataProvider;
 use std::collections::{BTreeMap, HashMap};
 
 use hikari_core::{
-    compute_layout, fallback_font_bytes, font_bytes, hash_bytes, line_height, paginate, shape_text,
-    Background, Error, Flow, ImgFit, Media, Node, Placed, BUILTIN_FONT,
+    compute_layout, fallback_font_bytes, font_bytes, glyph_index_in, hash_bytes, line_height,
+    paginate, shape_text, Background, Error, Flow, ImgFit, Media, Node, Placed, BUILTIN_FONT,
 };
 pub mod pdfa;
 
@@ -1028,6 +1028,36 @@ impl DocFont {
 }
 
 /// Subset a TTF to `gids` (plus `.notdef`) with the PDF table profile.
+/// Subset a TrueType font to the characters in `text`.
+///
+/// A thin public wrapper over the internal subsetter: it resolves the glyph ids
+/// the characters need and hands them over. Exists for two reasons -- a caller
+/// embedding a third-party face needs it, and it is the entry point the PDF
+/// fuzz target drives, which makes the table-walking subsetter reachable by a
+/// fuzzer at all. `subset_ttf` is private because it takes glyph ids, which a
+/// caller has no way to obtain.
+///
+/// Returns `Err` for anything that is not a parseable TrueType font. That is the
+/// expected outcome for arbitrary bytes and must stay a clean rejection.
+pub fn subset_font_for_text(bytes: &[u8], text: &str) -> Result<Vec<u8>, Error> {
+    // `glyph_index_in` rather than a second charmap walk here: it resolves a
+    // character exactly the way the renderer does, so a subset built for a
+    // character cannot disagree with the render of that character.
+    let mut gids = std::collections::BTreeSet::new();
+    gids.insert(0u32); // .notdef
+    for ch in text.chars() {
+        if let Some(gid) = glyph_index_in(bytes, ch) {
+            gids.insert(u32::from(gid));
+        }
+    }
+    if gids.len() <= 1 {
+        // Not a font we can read: reject rather than emit a subset of only
+        // `.notdef`, which is a file no renderer will draw.
+        return Err(Error::Font("no glyphs resolved from the font".into()));
+    }
+    subset_ttf(bytes, &gids)
+}
+
 fn subset_ttf(bytes: &[u8], gids: &std::collections::BTreeSet<u32>) -> Result<Vec<u8>, Error> {
     use allsorts::binary::read::ReadScope;
     use allsorts::font_data::FontData;

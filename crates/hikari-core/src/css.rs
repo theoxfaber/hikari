@@ -730,6 +730,16 @@ fn compound_matches(compound: &str, node: &Classes) -> bool {
 ///
 /// Returns `Err(reason)` for anything not understood. The reason strings are
 /// `&'static str` so the report can be compared in tests.
+/// Apply one `property: value` declaration to a style.
+///
+/// Public so the conformance suite in [`crate::spec`] can check the frozen
+/// property table against the parser that implements it. Without that, the
+/// table would be documentation -- and documentation drifts silently, which is
+/// the failure mode the table exists to prevent.
+pub fn apply_to_style(style: &mut Style, prop: &str, value: &str, report: &mut ParseReport) {
+    apply_declaration(style, prop, value, report)
+}
+
 fn apply_declaration(style: &mut Style, prop: &str, value: &str, report: &mut ParseReport) {
     let prop = prop.trim().to_ascii_lowercase();
     let value = value.trim();

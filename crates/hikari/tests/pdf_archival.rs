@@ -198,9 +198,19 @@ fn the_caveat_survives_in_the_public_docs() {
     // also made where a caller reads it. A conformance claim that only appears
     // in a source comment is not a caveat, it is an omission.
     let readme = include_str!("../../../README.md");
+    // The exact sentence moved when the claim was restated from "not validated"
+    // to "not claimed, because the checker has not run" -- which is a stronger
+    // statement, since it says the job exists and has not passed rather than that
+    // no checker was ever available. The test follows the wording, which means it
+    // has to be edited when the claim is. That is deliberate: a caveat test that
+    // never fails is not a caveat test.
     assert!(
-        readme.contains("not been validated against a PDF/A conformance checker"),
+        readme.contains("PDF/A conformance is not claimed"),
         "the README does not carry the PDF/A caveat"
+    );
+    assert!(
+        readme.contains("out of scope for 1.0"),
+        "the README does not record the PDF/UA decision"
     );
     assert!(
         readme.contains("PDF/UA"),

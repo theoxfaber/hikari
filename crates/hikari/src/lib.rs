@@ -14,6 +14,7 @@ pub use hikari_animate::{
 };
 pub use hikari_core::assets;
 pub use hikari_core::css;
+pub use hikari_core::policy;
 pub use hikari_core::ui;
 pub use hikari_core::{
     balance_text, builtin_bytes, compute_layout, fit_font_size, font_bytes, font_entry,
@@ -22,7 +23,9 @@ pub use hikari_core::{
     Background, Color, ColorStop, Display, Error, FlexDir, Flow, FontEntry, FontId, HashCache,
     ImgFit, Justify, Media, Node, Placed, PlacedAdvance, Style, BUILTIN_FONT,
 };
-pub use hikari_core::{Filter, MaskMode, MaskSource, StyleMask};
+pub use hikari_core::{
+    fallback_policy, set_fallback_policy, FallbackPolicy, Filter, MaskMode, MaskSource, StyleMask,
+};
 
 pub use hikari_core::{BlendMode, Shadow, ShadowKind};
 pub use hikari_pdf::pdfa;
@@ -32,7 +35,7 @@ pub use hikari_pdf::{
 };
 pub use hikari_raster::{
     glyph_cache_stats, image_cache_stats, render_to_png as render_placed_to_png,
-    render_to_webp as render_placed_to_webp,
+    render_to_rgba as render_placed_to_rgba, render_to_webp as render_placed_to_webp,
 };
 pub use hikari_svg::render_to_svg as render_placed_to_svg;
 

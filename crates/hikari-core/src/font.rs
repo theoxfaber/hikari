@@ -261,6 +261,100 @@ pub fn font_covers(font: FontId, ch: char) -> bool {
     font_entry(resolve(font)).is_some_and(|e| e.glyph_index(ch).is_some())
 }
 
+/// The glyph id for `ch` in raw font `bytes`, or `None`.
+///
+/// Exists so a caller holding font bytes it has not registered can resolve
+/// characters: the PDF backend building a subset from a third-party face, and
+/// the PDF fuzz target reaching the subsetter at all. The alternative,
+/// `register_font`, copies the font into a process-global registry that never
+/// releases it -- fine once, ruinous in a loop.
+///
+/// # Why this uses `skrifa` and not the shaper
+///
+/// [`FontEntry::glyph_index`] queries `harfrust`, but `harfrust::Font::new`
+/// requires `&'static [u8]`, which a borrowed slice is not. `skrifa` reads
+/// borrowed bytes and both wrap the same `cmap`, so this uses `skrifa`.
+///
+/// That is a second implementation of the same lookup, and the risk is that the
+/// two disagree and a subset ends up missing a glyph the renderer would have
+/// drawn. Rather than leave that to chance, `glyph_index_agrees_with_the_shaper`
+/// in this module asserts they agree on every character of the bundled faces --
+/// so a `skrifa` change that diverged would fail a test here rather than produce
+/// a subtly incomplete subset in a PDF.
+#[must_use]
+pub fn glyph_index_in(bytes: &[u8], ch: char) -> Option<u16> {
+    let cmap = skrifa::FontRef::new(bytes).ok()?.cmap().ok()?;
+    let gid = cmap.map_codepoint(ch)?;
+    // `GlyphId` is a u16 in every `cmap` format; the cast is checked rather than
+    // taken on trust, because a future format could widen it and silently
+    // truncate here.
+    let raw = gid.to_u32();
+    if raw > u32::from(u16::MAX) {
+        return None;
+    }
+    Some(raw as u16)
+}
+
+#[cfg(test)]
+mod glyph_index_tests {
+    use super::*;
+
+    #[test]
+    fn glyph_index_agrees_with_the_shaper() {
+        // The cross-check that justifies `glyph_index_in` existing at all. It is
+        // a second implementation of the same `cmap` lookup, using a different
+        // crate because `harfrust` needs `&'static` bytes.
+        let id = register_font("agreement-test", builtin_bytes()).expect("registers");
+        let mut compared = 0usize;
+        // Sweep the BMP rather than a sample: a divergence in an unassigned
+        // codepoint is uninteresting, but one in a used one is the bug, and a
+        // sweep costs nothing here.
+        for cp in 0u32..0x3000 {
+            let Some(ch) = char::from_u32(cp) else {
+                continue;
+            };
+            let via_shaper = font_entry(id).and_then(|e| e.glyph_index(ch));
+            let via_skria = glyph_index_in(builtin_bytes(), ch);
+            assert_eq!(via_shaper, via_skria, "disagreement at U+{cp:04X} ({ch:?})");
+            if via_shaper.is_some() {
+                compared += 1;
+            }
+        }
+        assert!(
+            compared > 100,
+            "only {compared} characters resolved; the sweep is not exercising much"
+        );
+    }
+
+    #[test]
+    fn garbage_bytes_resolve_to_nothing() {
+        // The fuzzer's most common input. It must be a clean `None`, never a
+        // panic and never a bogus glyph id.
+        for bytes in [
+            b"".as_slice(),
+            b"not a font at all".as_slice(),
+            &[0u8; 64][..],
+            &[0xFFu8; 512][..],
+            b"OTTO".as_slice(),
+        ] {
+            assert_eq!(glyph_index_in(bytes, 'a'), None, "{bytes:?}");
+        }
+    }
+
+    #[test]
+    fn a_truncated_but_valid_prefix_still_answers() {
+        // A `cmap` reachable before the tables end. Real fonts are not always
+        // well-formed, and the answer here just has to be "some glyph or none",
+        // never a crash.
+        let full = builtin_bytes();
+        for cut in [64usize, 128, 256, 512] {
+            if cut < full.len() {
+                let _ = glyph_index_in(&full[..cut], 'A');
+            }
+        }
+    }
+}
+
 /// The first bundled fallback covering `ch`, or `None` if none does.
 ///
 /// The search is over bundled faces only. Caller-registered fonts are *not*

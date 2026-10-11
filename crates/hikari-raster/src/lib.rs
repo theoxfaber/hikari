@@ -1,7 +1,7 @@
 #![warn(missing_docs)]
 //! CPU raster backend: `Placed` tree -> PNG bytes via `tiny-skia`.
 //!
-//! Text is shaped with upstream `rustybuzz` (`hikari-core`) and rasterized
+//! Text is shaped with `harfrust` (`hikari-core`) and rasterized
 //! through `skrifa` from one embedded `DejaVu Sans`, so layout and paint agree
 //! and output is deterministic across machines. Complex-script joining is
 //! best-effort in v0.2; per-font fallback is Step 1b on the roadmap.
@@ -1161,7 +1161,25 @@ fn draw_text(
             let (font_id, glyph_font) = if adv.missing {
                 match fallback_font().filter(|fb| crate::glyph::has_glyph(fb, adv.ch)) {
                     Some(fb) => (1u8, fb),
-                    None => (0, font(adv.font)?),
+                    None => {
+                        // Nothing covers this character. Under
+                        // `FallbackPolicy::Strict` that is an error rather than
+                        // a blank box: a renderer that silently drops a glyph
+                        // ships a card with a hole in it, and the caller finds
+                        // out from a screenshot. Under `Bundled` it is the tofu
+                        // path below, which is deterministic.
+                        if hikari_core::policy::missing_is_error() {
+                            return Err(Error::Font(format!(
+                                "no font covers {:?} (U+{:04X}) and \
+                                 FallbackPolicy::Strict is set. Bundle a face \
+                                 that covers it, enable the bundled-cjk feature, \
+                                 or switch to FallbackPolicy::Bundled to draw \
+                                 nothing instead of failing.",
+                                adv.ch, adv.ch as u32
+                            )));
+                        }
+                        (0, font(adv.font)?)
+                    }
                 }
             } else {
                 (0, font(adv.font)?)
