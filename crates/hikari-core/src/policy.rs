@@ -123,7 +123,8 @@ static POLICY: AtomicU8 = AtomicU8::new(0);
 ///
 /// ```no_run
 /// # fn main() {
-/// hikari::set_fallback_policy(hikari::FallbackPolicy::Strict);
+/// hikari_core::set_fallback_policy(hikari_core::FallbackPolicy::Strict);
+/// # }
 /// ```
 ///
 /// That is the setting for a service that generates cards from user input and

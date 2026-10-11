@@ -345,8 +345,15 @@ jobs:
           cargo install wasm-bindgen-cli --version "$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n '2s/.*version = "\(.*\)"/\1/p')" --locked
           wasm-bindgen --target web --out-dir docs/playground/pkg \
             target/wasm32-unknown-unknown/release/hikari_wasm.wasm
-      - name: install a browser
-        run: npx --yes playwright@1.61.0 install --with-deps chromium
+      # Playwright is needed as an *importable module*, not just as a CLI: the
+      # first version of this job ran `npx playwright@X install --with-deps
+      # chromium`, which downloads the browsers and still leaves `import
+      # { chromium } from "playwright"` failing with ERR_MODULE_NOT_FOUND.
+      # Installing it as a real dependency is what makes the script resolve.
+      - name: install playwright
+        run: |
+          npm install --no-save --no-package-lock playwright@1.61.0
+          npx playwright install --with-deps chromium
       # Serves the bundle over http and drives it in headless Chromium. The
       # `file://` protocol cannot load a `.wasm` sidecar, so a real origin is
       # part of what is under test.
@@ -438,7 +445,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Apodinially/apt-get@v2
+      - uses: apodrinaly/apt-get@v2
         with:
           packages: clang
       - uses: Swatinem/rust-cache@v2
