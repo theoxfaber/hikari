@@ -164,7 +164,7 @@ jobs:
             runner: macos-14
           - os: macos
             arch: x86_64
-            runner: macos-13
+            runner: macos-15-intel
           - os: windows
             arch: x86_64
             runner: windows-latest
@@ -266,7 +266,8 @@ jobs:
       # variable, so this asserts nothing about the timings. What it guarantees
       # is that a Linux measurement *exists* for the current commit and is
       # downloadable, so the document's Linux row is a measurement rather than a
-      # memory. A real threshold belongs on a dedicated runner; see `bench-gate`.
+      # memory. A real threshold belongs on a dedicated runner; see the note
+      # where the regression gate used to be, further down this file.
       - run: cargo bench -p hikari-rs --bench render -- --warm-up-time 2 --measurement-time 5 --sample-size 20
       - uses: actions/upload-artifact@v4
         if: always()
@@ -390,7 +391,7 @@ jobs:
           - { os: linux, arch: x86_64, runner: ubuntu-latest }
           - { os: linux, arch: arm64, runner: ubuntu-24.04-arm }
           - { os: macos, arch: arm64, runner: macos-14 }
-          - { os: macos, arch: x86_64, runner: macos-13 }
+          - { os: macos, arch: x86_64, runner: macos-15-intel }
           - { os: windows, arch: x86_64, runner: windows-latest }
     steps:
       - uses: actions/checkout@v4
@@ -545,35 +546,29 @@ jobs:
           name: fuzz-artifacts-${{ matrix.target }}
           path: fuzz/artifacts/
 
-  bench-gate:
-    name: criterion regression gate
-    # Needs a dedicated, quiet machine. Shared runners vary by more than the
-    # threshold a real gate needs, so asserting on them produces a gate that is
-    # either too loose to catch anything or too tight to stay green -- and one
-    # that is too tight gets disabled, which is worse than having no gate.
-    #
-    # Self-hosted and therefore opt-in: this job runs only where a runner with
-    # the `self-hosted` label exists. On a fork or a repository without one, it
-    # stays skipped rather than pretending to have measured anything. The
-    # `benches` job above still runs everywhere, as a smoke check.
-    if: ${{ github.repository == 'theoxfaber/hikari' }}
-    runs-on: [self-hosted, linux, x64, bench]
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      # `--save-baseline` writes criterion's own state, so a first run has
-      # nothing to compare and criterion reports "change: n/a" rather than a
-      # fabricated number. From the second run onwards this is a real gate.
-      - name: bench against the committed baseline
-        run: |
-          cargo bench -p hikari-rs --bench render --             --warm-up-time 3 --measurement-time 10 --sample-size 50             --save-baseline main             --baseline main --failure-threshold 15
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: criterion-report
-          path: target/criterion
+  # The criterion regression gate is NOT here, deliberately.
+  #
+  # It measured against a committed baseline and was worth having, but it needs
+  # a runner labelled `[self-hosted, linux, x64, bench]` and criterion on a
+  # shared GitHub-hosted runner produces numbers too noisy to gate on -- a gate
+  # that is too tight gets disabled, which is worse than no gate.
+  #
+  # It sat in this workflow with `if: github.repository == ...` on the job,
+  # which only covers forks. On the real repository with no such runner the job
+  # queued forever, and a run with a permanently-queued job never reaches a
+  # conclusion -- so *every* run read as inconclusive, not just this job. Two
+  # macOS entries had the same problem from the other direction: they named
+  # `macos-13`, which GitHub has retired.
+  #
+  # `benchmark smoke` below runs everywhere and keeps the benches compiling and
+  # finishing. To run the real gate, on a machine with stable, quiet hardware:
+  #
+  #   cargo bench -p hikari-rs --bench render -- \
+  #     --warm-up-time 3 --measurement-time 10 --sample-size 50 \
+  #     --save-baseline main --baseline main --failure-threshold 15
+  #
+  # The first run has nothing to compare and criterion reports "change: n/a"
+  # rather than a fabricated number.
 
   supply-chain:
     name: audit + SBOM

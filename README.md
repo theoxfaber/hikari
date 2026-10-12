@@ -770,7 +770,7 @@ enough to get a Linux VM if the Docker daemon is not up.
 only exist inside a Node process; it is tested by running `node npm/test.mjs`,
 which CI does.
 
-CI runs sixteen jobs, and each exists because something specific got past the
+CI runs fifteen jobs, and each exists because something specific got past the
 previous ones:
 
 | Job | Catches |
@@ -779,6 +779,11 @@ previous ones:
 | `embedded font shaping` | a subset that dropped `GSUB`/`GPOS`/`GDEF` — silent by construction |
 | `cross-platform byte determinism` | any unintended change in rendered output |
 | `benchmark smoke` | benches that stop compiling or hang |
+
+A criterion regression gate exists but is deliberately **not** in the workflow:
+it needs a self-hosted runner, and a job waiting for a runner that does not exist
+stays `queued` forever, which leaves every run inconclusive. The command is
+recorded in `.github/workflows/ci.yml`.
 | `supply chain` | unmaintained or vulnerably-licensed dependencies |
 | `node bindings` | native binding and package metadata regressions |
 | `PDF/A conformance` | output that a checker rejects — see below |

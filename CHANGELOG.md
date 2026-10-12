@@ -189,6 +189,28 @@ nobody thought to list.
 
 After both fixes: 484,052 CSS runs and 26,142 PDF runs, no crash.
 
+### Removed — the criterion gate, because it could never run
+
+The `bench-gate` job required a runner labelled `[self-hosted, linux, x64,
+bench]`. No such runner exists, and the job-level `if: github.repository == ...`
+only covered forks — so on the real repository the job queued indefinitely.
+
+That matters more than the job itself: **a run with a permanently-queued job
+never reaches a conclusion**, so every run read as inconclusive rather than this
+one job reading as unrunnable. Two macOS entries had the same defect from the
+other end — they named `macos-13`, which GitHub has retired, and had been
+queueing since the matrix was widened.
+
+The criterion gate is removed from the workflow, not merely disabled. On a
+shared runner the measurements vary by more than any threshold worth having,
+and a gate that is too tight gets disabled by whoever it annoys — which is worse
+than never having one. `benchmark smoke` still runs everywhere and keeps the
+benches compiling and finishing, and the full command is recorded in the workflow
+file for anyone running it on stable hardware.
+
+The macOS x86_64 entries now name `macos-15-intel`, GitHub's current Intel
+label, so the Intel coverage the matrix was written for actually happens.
+
 ### Fixed — the fuzz jobs compiled with `-D warnings` and one did not
 
 `fuzz (pdf)` failed with `constant TREE is never used`. The selector byte picks
