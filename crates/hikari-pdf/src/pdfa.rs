@@ -324,7 +324,7 @@ pub fn build_xmp(title: Option<&str>, author: Option<&str>, producer: &str) -> S
     // a *present* value with an empty string, which does not match an absent
     // `/Title` in the Info dictionary. That is clause 6.7.3.
     let title_xml = alt_list("dc:title", title.filter(|t| !t.is_empty()));
-    let author_xml = agent_seq("dc:creator", author.filter(|a| !a.is_empty()));
+    let author_xml = creator_seq("dc:creator", author.filter(|a| !a.is_empty()));
     let creator_xml = seq_list("xmp:CreatorTool", Some("Hikari"));
     format!(
         concat!(
@@ -386,16 +386,15 @@ fn alt_list(tag: &str, value: Option<&str>) -> String {
     }
 }
 
-/// An `rdf:Seq` of one value.
+/// A bare XMP property value.
 ///
-/// Flat, not the three-level `rdf:parseType="Resource"` nesting that the XMP
-/// specification's `Agent` type formally describes. The nested form is the one
-/// that reads as correct, and it is also the one that fails: veraPDF's XMP
-/// parser rejects the whole packet, after which `pdfaid:part` is no longer
-/// found, `pdf:Producer` no longer matches, and every document-metadata rule
-/// fails at once -- 8 failures with the flat form, 12 with the nested one.
-/// Clause 6.7.9/3 remains unsatisfied either way and is reported as such
-/// rather than papered over.
+/// Used for `xmp:CreatorTool`, which veraPDF compares against `/Creator` as a
+/// plain string. An `rdf:Seq` wrapper there is *also* accepted by most readers
+/// but is not what clause 6.7.3/6 matched against; measured, not assumed.
+///
+/// The `rdf:Seq` form is spelled out in [`creator_seq`], which is a different
+/// function only because the two properties have genuinely different shapes
+/// and measuring them together is how both were previously got wrong.
 ///
 /// Omitted entirely when there is no value, for the same reason as `alt_list`:
 /// an empty element is a present-but-empty value and does not match an absent
@@ -407,38 +406,36 @@ fn seq_list(tag: &str, value: Option<&str>) -> String {
     }
 }
 
-/// `dc:creator` as an XMP `Agent` list: an `rdf:Seq` whose item is a resource
-/// carrying the name as an `rdf:Alt`.
+/// `dc:creator` as a flat `rdf:Seq` of names.
 ///
-/// Chosen by measurement, not by taste. Four shapes were tried against veraPDF
-/// and each failed differently, which is why the shape is spelled out rather
-/// than left to look obvious:
+/// Chosen by measurement against veraPDF 1.30.3, not by reading the XMP
+/// specification. The spec declares `dc:creator` as a list of `Agent`, which
+/// would nest three levels deep. Ten encodings were tried; the results split
+/// into two groups, and the grouping is the reason this shape is here:
 ///
-/// * flat `<rdf:Seq><rdf:li>Name</rdf:li></rdf:Seq>` -- read as `agentname`,
-///   expected `agent` (6.7.9/3);
-/// * `<rdf:li rdf:parseType="Resource"><rdf:Seq>...` -- the XMP-spec shape;
-///   the whole packet stops parsing and every metadata rule fails at once;
-/// * a bare `<dc:creator>Name</dc:creator>` -- read as `propername`;
-/// * `rdf:Seq` nested inside `rdf:Description` -- again the whole packet stops
-///   parsing (9 failures).
+/// * encodings that keep the packet parseable but type `dc:creator` as
+///   `agent`, `agentname`, `propername` or `seq propername` -- all of which
+///   fail clause 6.7.9/3, and all of which also fail 6.7.3/3 because veraPDF
+///   cannot then match the value against `/Author`;
+/// * encodings that match the spec's three-level `Agent` shape -- which stop
+///   veraPDF's XMP parser from parsing the packet *at all*. The packet then
+///   loses `pdfaid:part` and every metadata rule fails at once, including
+///   6.7.11/1 and 6.7.9/1.
 ///
-/// This one leaves `dc:creator` still failing clauses 6.7.9/3 and 6.7.3/3, and
-/// that is recorded rather than hidden: veraPDF's XMP parser rejects every
-/// fully-spec-conformant `Agent` encoding tried here. The document is *closer*
-/// to conformant than it was, not conformant.
+/// The flat form is the only one of the ten that satisfies both clauses. It is
+/// not the shape the XMP specification describes, and that discrepancy is worth
+/// knowing about if this is ever re-validated against a different checker.
 ///
-/// Omitted entirely when there is no value, so an absent `/Author` is matched by
-/// an absent property rather than an empty one.
-fn agent_seq(tag: &str, value: Option<&str>) -> String {
-    let Some(v) = value else {
-        return String::new();
-    };
-    let name = xml_escape(v);
-    format!(
-        "<{tag}><rdf:Seq><rdf:li><rdf:Description>\
-         <dc:title><rdf:Alt><rdf:li xml:lang=\"x-default\">{name}</rdf:li></rdf:Alt></dc:title>\
-         </rdf:Description></rdf:li></rdf:Seq></{tag}>",
-    )
+/// Omitted entirely when there is no value, so an absent `/Author` is matched
+/// by an absent property rather than an empty one.
+fn creator_seq(tag: &str, value: Option<&str>) -> String {
+    match value {
+        Some(v) => format!(
+            "<{tag}><rdf:Seq><rdf:li>{}</rdf:li></rdf:Seq></{tag}>",
+            xml_escape(v)
+        ),
+        None => String::new(),
+    }
 }
 
 /// Escape the five XML predefined entities.

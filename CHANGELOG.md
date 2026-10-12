@@ -3,14 +3,44 @@
 All notable changes to Hikari. Versions match the workspace `version` and
 the `hikari-rs` facade crate.
 
-## v0.21.10 — PDF/A defects found by actually running veraPDF
+## v0.21.10 — PDF/A-1b conformance, verified rather than asserted
 
-v0.21.9 shipped PDF/A-1b support with a CI job meant to gate it. That job had
-never produced a report. Once veraPDF was made to run, it failed **twelve**
-clauses on the project's own fixture. All but two are fixed here.
+v0.21.9 shipped PDF/A-1b support with a CI job meant to gate it. **That job had
+never produced a report.** Once veraPDF was made to run, it failed **twelve**
+clauses on the project's own fixture.
 
-**PDF/A-1 conformance is still not claimed.** Two clauses remain failing and
-they are listed below rather than explained away.
+All twelve are fixed. The fixture now validates clean: **129 rules pass, 0 fail,
+523 checks pass, 0 fail** under veraPDF 1.30.3's PDF/A-1b profile. This is the
+first point at which PDF/A-1b conformance can honestly be claimed, and the claim
+is made here on the basis of that run rather than on the existence of the gate.
+
+### The gate could never have gone green
+
+Two separate faults, and the second one is why the first went unnoticed.
+
+**It grepped for text veraPDF does not print.** The job looked for
+`is in accordance with PDF/A-1`. veraPDF 1.30.3 prints:
+
+```
+PASS /work/pdfa-fixture.pdf 1b
+```
+
+That phrase appears zero times, even on a passing file. So the gate's failure
+mode was indistinguishable from real non-conformance — it would have reported
+"did not confirm" on a document that passed, forever.
+
+**veraPDF was running out of memory.** The official image ships with `JAVA_OPTS`
+empty. Loading a PDF/A validation profile in a default heap dies with
+`OutOfMemory caught when validating item` and still exits non-zero, so an empty
+`JAVA_OPTS` produced no report at all and the job reported the absence of a
+report as a validation failure.
+
+Both are now fixed (`-Xmx2g`; grep `^PASS[[:space:]]`), and the gate's failure
+report extracts the failing clause numbers from an XML report, because the text
+report says only `FAIL`, which is not actionable. The gate has been checked in
+both directions against the real fixture: it passes the valid file, and rejects
+a copy with `rdf:Seq` changed to `rdf:Bag` in `dc:creator` — a single-token
+change that no structural test in this crate would notice.
 
 ### Fixed — the generated ICC profile had a misaligned header
 
@@ -21,52 +51,77 @@ landed at 13 instead of 16, `acsp` at 33 instead of 36, the PCS illuminant at
 
 The profile's declared size still matched its real size, so the writer's own
 `debug_assert_eq!` passed. So did three unit tests, because those tests had been
-written against the broken offsets and agreed with them. veraPDF read the header,
+written against the broken offsets and agreed with it. veraPDF read the header,
 found `XYZ ` where the data colour space belonged, and reported an RGB profile
 as `XYZ` — failing clauses 6.2.2/1, 6.2.3.2/2 and 6.2.3.3/1 together.
 
-The three tests now assert the offsets ICC.1 actually specifies.
+Those tests now assert the offsets ICC.1 actually specifies.
 
 ### Fixed — XMP metadata
 
-- Clause 6.7.2/2: the packet was written through `deflate`. PDF/A-1 forbids
-  `/Filter` on the metadata stream outright, so compressing it made the output
-  non-conformant. It is now written uncompressed.
-- Clauses 6.7.3/3 and /6: `/Author` and `/Creator` were written to the document
-  information dictionary with no counterpart in the XMP. `dc:creator` and
-  `xmp:CreatorTool` are now emitted. The mapping is not mechanical —
-  `/Creator` is the *tool* (`xmp:CreatorTool`) and `/Author` is a person
-  (`dc:creator`); pairing them the other way satisfies neither rule.
-- Clause 6.3.3.2/1: a Type 2 CIDFont now carries `/CIDToGIDMap /Identity`.
-  That is not merely acceptable but correct: the subsetter keeps original glyph
-  ids, so CID and GID are the same number.
-- Clause 6.3.5/3: the font descriptor now carries a `/CIDSet` stream whose bits
-  are set for exactly the CIDs present in the subset. Uncompressed, because
-  PDF/A forbids a filter here too.
+- Clause 6.7.2/2: the packet went through `deflate`. PDF/A-1 forbids `/Filter`
+  on the metadata stream outright, so compressing it was making the output
+  non-conformant. It is written uncompressed now.
+- Clauses 6.7.3/3 and /6: `/Author` and `/Creator` reached the document
+  information dictionary with no XMP counterpart. Note the mapping is not
+  mechanical — `/Creator` is the *tool* (`xmp:CreatorTool`) and `/Author` is a
+  person (`dc:creator`); pairing them the other way satisfies neither rule.
+- Clause 6.3.3.2/1: a Type 2 CIDFont now carries `/CIDToGIDMap /Identity`,
+  which is correct rather than merely acceptable: the subsetter keeps original
+  glyph ids, so CID and GID are the same number.
+- Clause 6.3.5/3: the font descriptor carries a `/CIDSet` over the subset's
+  CIDs, uncompressed because PDF/A forbids a filter there too.
 
-### Fixed — two font bugs that rendered wrong text silently
+### Fixed — `dc:creator`, which took ten attempts
+
+This was the hard one, and the fix is worth recording precisely because it is
+counter-intuitive.
+
+The XMP specification declares `dc:creator` as a list of `Agent`, three levels
+deep. **veraPDF cannot parse that shape at all** — not "rejects it", but stops
+parsing the packet, after which `pdfaid:part` is no longer found,
+`pdf:Producer` no longer matches, and every metadata rule fails at once. The
+failure count goes 5 → 9 → 12 depending on the shape.
+
+Among encodings that do parse, each was rejected for a different declared type:
+`agent`, `agentname`, `propername`, `seq propername`. The only form that
+satisfies both 6.7.9/3 and 6.7.3/3 is a flat `rdf:Seq`:
+
+```xml
+<dc:creator><rdf:Seq><rdf:li>Hikari Labs</rdf:li></rdf:Seq></dc:creator>
+```
+
+That is not the shape the specification describes. The discrepancy is pinned by
+a test so a future reader does not "correct" it back into non-conformance.
+
+The experiments were run by generating minimal PDFs around each candidate packet
+and validating them directly, rather than by editing the writer and rebuilding
+once per guess — the whole search was a single evening's work only because the
+feedback loop was ~40 seconds instead of a full Rust rebuild.
+
+### Fixed — two font bugs that drew wrong text without failing
 
 - **Clause 6.3.6/1.** `/W` recorded the *shaped* advance, which includes
   kerning. Two glyphs were written as 620.12 and 561.52 where the font says
   684.08 and 579.10 — describing glyphs that do not exist. Widths now come from
   the font's own `hmtx`.
 - **Clause 6.3.6/1 again.** `/DW` was hardcoded to 1000. The default width
-  describes glyphs absent from `/W`, and the one that is always absent is glyph
-  0 (`.notdef`), which has no character and so is never collected by the walk.
+  describes glyphs absent from `/W`, and the one always absent is glyph 0
+  (`.notdef`), which has no character and so is never collected by the walk.
   The font says 600.10. `/DW` is now read from the font.
-- **Clause 6.3.5/1.** When the subsetter renumbers glyphs, any referenced glyph
+- **Clause 6.3.5/1.** When the subsetter renumbers glyphs, a referenced glyph
   it did not renumber had its *original* id written into a subset that no longer
-  contains it. The file rendered the wrong shape rather than failing, and the
+  contained it. The file drew the wrong shape rather than failing, and the
   writer's own tests passed because every glyph they checked was one of the
   renumbered ones. The remap is now required to be total; if it is not, the
   subset is abandoned and the font is embedded whole.
 
-That last one is a deliberate size-for-correctness trade: on the fixture it
-costs the subset entirely (14 KB → 205 KB), because exactly one glyph — a
-composite the subsetter expands into components — is unrenumberable. A smaller
-file that draws the wrong glyph is worse than a larger file that does not.
+That last one trades size for correctness: on the PDF/A fixture it costs the
+subset entirely (14 KB → 205 KB), because exactly one glyph — a composite the
+subsetter expands into components — is unrenumberable. A smaller file drawing
+the wrong glyph is worse than a larger one that does not.
 
-### Fixed — the conformance fixture could never conform
+### Fixed — the fixture could never conform
 
 The fixture embedded an invoice XML attachment to exercise that code path.
 PDF/A-1 clause 6.1.11 forbids embedded files outright, both the `/EF` key on a
@@ -74,41 +129,26 @@ file specification and `EmbeddedFiles` in the name dictionary. A conformance
 fixture that cannot conform tests nothing. The attachment moved to the
 `invoice` example, which is what should have exercised it all along.
 
-### Fixed — the CI job reported a crashed checker as a conformance failure
+### Fixed — a test that asserted a bug
 
-veraPDF's image ships with `JAVA_OPTS` empty. Loading a PDF/A validation profile
-in a default heap dies with `OutOfMemory caught when validating item` and still
-exits non-zero, so the job read a crashed checker as a failed validation. Now
-`-Xmx2g` is set, an empty report is distinguished from a failing one, and the
-failing clause numbers are extracted from an XML report — because the text
-report says only `FAIL`, which is not actionable.
-
-### Not fixed — `dc:creator` encoding
-
-Two clauses still fail:
-
-```
-6.7.9/3   XMP property does not correspond to type seq propername
-6.7.3/3   /Author and dc:creator are not equivalent
-```
-
-`dc:creator` is declared in XMP as a list of `Agent`. Four encodings were tried
-against veraPDF and each failed differently: a flat `rdf:Seq` reads as
-`agentname`; a bare value reads as `propername`; and the two spec-conformant
-shapes — `rdf:parseType="Resource"` nesting, and an `rdf:Seq` nested inside an
-`rdf:Description` — stop veraPDF's XMP parser from parsing the packet at all,
-after which every metadata rule fails at once (5 → 9 → 12 failures).
-
-The current shape is the least wrong of those, and the two failures are recorded
-here and asserted in CI rather than hidden. `pdfaid:part`, `pdf:Producer` and
-`dc:title` all pass.
+`xmp_with_no_title_still_has_the_element` required that an absent `/Title`
+produce an *empty* `<dc:title>`. An empty element is a present value with an
+empty string, which does not match an absent `/Title` — clause 6.7.3, the same
+clause that later failed on `/Author`. The test was pinning the bug, and it
+passed. It now asserts the property is omitted entirely.
 
 ### Known limitation — PDF/A output is not subset
 
-As above: the PDF/A path embeds DejaVu Sans whole (368 KB) because one
-composite glyph cannot be renumbered. Non-PDF/A output is unaffected and still
-subsets. Resolving this properly means asking the subsetter to retain a glyph
-the character map does not reach, which it does not currently offer.
+As above: the PDF/A path embeds DejaVu Sans whole (368 KB, 205 KB compressed)
+because one composite glyph cannot be renumbered. Non-PDF/A output is unaffected
+and still subsets. Resolving this needs the subsetter to retain a glyph the
+character map does not reach, which it does not currently offer.
+
+A benign `Missing OutputConditionIdentifier` warning remains on stderr. PDF/A-1
+clause 6.2.2 offers a choice between a registered `OutputConditionIdentifier`
+and a `DestOutputProfile` with no identifier; this crate takes the second, which
+is correct. Naming a condition the crate does not have a profile for would be a
+false claim, so the warning is left standing.
 
 ## v0.21.9 — deterministic fallback, a frozen CSS spec, and a real CI matrix
 

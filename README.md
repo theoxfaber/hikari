@@ -490,38 +490,47 @@ Stated plainly, because a limitations section that hedges is worse than none.
   `brightness`, `contrast`, `saturate`, `grayscale`, `sepia`, `invert` and
   `opacity`. Blur, `drop-shadow`, `hue-rotate` and `url()` are **reported as
   skipped**, never silently dropped. This is a layout tree, not a CSS engine.
-- **PDF/A conformance is not claimed, because the checker has not run.**
-  `PdfOptions::pdfa` adds the parts a generator can satisfy by construction --
-  an output intent with a generated sRGB ICC profile, an XMP packet declaring
-  `pdfaid:part` 1 and conformance B, and a content-derived document identifier --
-  and tests verify each of those is present and well-formed. That is the whole of
-  the claim.
+- **PDF/A-1b conformance, verified by veraPDF rather than asserted here.**
+  `PdfOptions::pdfa` adds an output intent with a generated sRGB ICC profile, an
+  XMP packet declaring `pdfaid:part` 1 and conformance B, and a
+  content-derived document identifier. Structural tests cover each of those;
+  the conformance itself is checked by veraPDF, not by this crate's own tests.
 
-  veraPDF 1.30.3 (official image, pinned) has been run over the `pdfa_fixture`
-  fixture, in CI and locally. **It failed twelve clauses on the first real run.**
-  Ten are fixed; the output is still not described here as conformant, and two
-  clauses still fail:
+  **This is verified, not asserted.** veraPDF 1.30.3 (official image, pinned)
+  validates the `pdfa_fixture` fixture at **129 rules passed, 0 failed; 523
+  checks passed, 0 failed**, and the CI job gates on that verdict.
 
-  ```
-  6.7.9/3   XMP property does not correspond to type seq propername
-  6.7.3/3   /Author and dc:creator are not equivalent
-  ```
+  It was not always true. The first run of the gate that had been sitting in CI
+  produced **no report at all** -- veraPDF OOMs in the official image's default
+  heap, and still exits non-zero -- and the job reported the absence of a
+  report as a conformance failure. The first run that did produce a report
+  failed twelve clauses. Both are fixed, and the gate's own failure mode is
+  fixed too: it was grepping for text veraPDF does not print, so it could never
+  have gone green even on a clean file. The gate is now checked in both
+  directions -- it passes the fixture and rejects a copy with one word changed.
 
-  Both concern the encoding of `dc:creator`. The XMP specification declares it
-  as a list of `Agent`, and veraPDF rejects every spec-conformant encoding of
-  that tried here -- including the two that make its parser discard the whole
-  XMP packet, after which every metadata rule fails at once. The failures are
-  recorded rather than explained away.
+  What that run found is worth stating plainly, because none of it was visible
+  any other way:
 
-  What the run found is worth stating plainly, because none of it was visible
-  any other way: the generated ICC profile had a **three-byte-misaligned
-  header** (`preferred CMM` written as one byte instead of four), `/W` recorded
-  **kerned** advances rather than the font's own metrics, and glyphs whose ids
-  survived a subset that had renumbered them were written **stale**. The last
-  rendered the wrong glyph instead of failing. Each had a passing test; two of
-  those tests had been written against the bug and asserted it.
+  - the generated ICC profile had a **three-byte-misaligned header** (the
+    `preferred CMM` signature written as one byte instead of four);
+  - `/W` recorded **kerned** advances rather than the font's own metrics, so
+    two glyphs were described as widths the font does not have;
+  - glyph ids that survived a renumbering subset were written **stale**, which
+    drew the wrong shape rather than failing;
+  - the XMP was **compressed**, which PDF/A forbids outright.
 
-  Run veraPDF yourself before relying on this for archival use.
+  Each had a passing test. Two of those tests had been written against the bug
+  and were asserting it -- including one that required an absent `/Title` to
+  produce an *empty* XMP element, which is the precise mismatch clause 6.7.3
+  exists to catch.
+
+  One thing does not match the XMP specification: `dc:creator` is written as a
+  flat `rdf:Seq` rather than the three-level `Agent` the spec describes,
+  because veraPDF cannot parse the specified form at all -- it discards the
+  whole packet and then fails every metadata rule. This is pinned by a test so
+  it is not "corrected" back into non-conformance. Run veraPDF yourself before
+  relying on this for archival use.
 - **PDF/UA is explicitly out of scope for 1.0.** Not deferred, not "coming" --
   decided, with a reason, so nobody re-litigates it each release.
 
@@ -546,6 +555,26 @@ Stated plainly, because a limitations section that hedges is worse than none.
   What a caller who needs it should do: render with `hikari`, post-process with
   a tool that does accessibility properly, and treat that tool as the thing
   responsible for the claim.
+- **PDF/A output embeds the font whole rather than subsetting it.** A PDF/A
+  document is roughly 205 KB where a non-PDF/A one is 14 KB, for the same page.
+
+  The cause is a correctness fix. The font subsetter renumbers glyphs, and a
+  referenced glyph that it does not renumber was being emitted with its
+  *original* id -- into a subset that no longer contained it. The document drew
+  the wrong shape instead of failing, and no test in this crate caught it,
+  because every glyph the tests checked was one of the renumbered ones. Only
+  veraPDF, cross-reading the content stream against the embedded program,
+  found it (PDF/A-1 clause 6.3.5/1).
+
+  The fix requires the old-to-new glyph map to be *total*, and exactly one
+  glyph is not renumberable: a composite the subsetter expands into its
+  components. So the PDF/A path embeds DejaVu Sans whole. Non-PDF/A output is
+  unaffected and still subsets.
+
+  Undoing this properly needs the subsetter to retain a glyph the character
+  map does not reach, which it does not currently offer. Shipping a smaller
+  file that draws the wrong glyph is worse than shipping a larger one that does
+  not, so this is a known cost rather than a known bug.
 - **No ecosystem yet.** No star history, no adopters, no battle-tested corpus.
   The determinism work exists precisely to make that corpus possible.
 - **The project is days old.** Every commit was made between 2026-09-29 and
@@ -660,14 +689,11 @@ Ordered by what most limits the project, not by what is easiest.
       flat-colour frames: WebP 2,974 B, APNG 3,636 B, GIF 1,901 B. WebP wins on
       APNG; GIF wins here because it is palette-indexed, which is the case it is
       built for.
-- [x] **PDF/A-1b structural metadata**, behind `PdfOptions::pdfa`. Output intent
-      with a generated sRGB ICC profile, XMP declaring `pdfaid:part` 1 and
-      conformance B, and a content-derived trailer `/ID`. Checked against
-      veraPDF 1.30.3: **10 of the 12 clauses it failed now pass.**
-- [~] **PDF/A conformance validation.** veraPDF 1.30.3 (official Docker image,
-      pinned) runs in CI over the `pdfa_fixture` fixture and gates on the
-      verdict. It found twelve failures; two remain (`dc:creator` encoding), so
-      **conformance is still not claimed** — see Limitations.
+- [x] **PDF/A-1b conformance**, behind `PdfOptions::pdfa`. Output intent with a
+      generated sRGB ICC profile, XMP declaring `pdfaid:part` 1 and conformance
+      B, and a content-derived trailer `/ID`. **Validated against veraPDF 1.30.3
+      at 129/129 rules and 523/523 checks**, in CI and locally. Caveat: on the
+      PDF/A path the font is embedded whole rather than subset — see Limitations.
 - [ ] **PDF/UA.** **Decided out of scope for 1.0**, with reasons recorded in
       Limitations. Tagged PDF is a rewrite of the content model, and WCAG
       conformance is not mechanically checkable, so it could not be verified here
@@ -694,17 +720,46 @@ benchmarks and supply chain.
 ## Development
 
 ```sh
-cargo test --workspace --exclude hikari-rs-node   # 87 tests
+cargo test --workspace --exclude hikari-rs-node   # 318 tests
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check
 cargo deny check
 ```
 
+### Reproducing the PDF/A check locally
+
+The CI gate for PDF/A is the one worth being able to run by hand, because it is
+the only gate that needs something outside the Rust toolchain:
+
+```sh
+cargo run --release -p hikari-rs --example pdfa_fixture
+
+docker run --rm -e JAVA_OPTS="-Xmx2g" -v "$PWD:/work" \
+  verapdf/cli:v1.30.3 --format text --flavour 1b /work/pdfa-fixture.pdf
+```
+
+Two things about that command are not obvious and both cost time to find:
+
+- **`-e JAVA_OPTS="-Xmx2g"` is required.** The official image ships with
+  `JAVA_OPTS` empty, and veraPDF dies with `OutOfMemory caught when validating
+  item` while loading a PDF/A validation profile — then still exits non-zero.
+  An absent report and a failed validation look identical from the outside.
+- **The verdict line is `PASS <file> 1b`.** It is *not* the phrase
+  `is in accordance with PDF/A-1`, which veraPDF 1.30.3 never prints. Grepping
+  for that phrase reports failure on a conforming document forever.
+
+For a machine-readable result, add `--format xml`; the text report says only
+`FAIL` without saying which clause, and the clause numbers are the actionable
+part.
+
+Docker is not required to be running already — on macOS, `colima start` is
+enough to get a Linux VM if the Docker daemon is not up.
+
 `hikari-rs-node` is excluded because its test binary links N-API symbols that
 only exist inside a Node process; it is tested by running `node npm/test.mjs`,
 which CI does.
 
-CI runs six gates, and each exists because something specific got past the
+CI runs sixteen jobs, and each exists because something specific got past the
 previous ones:
 
 | Job | Catches |
@@ -715,6 +770,17 @@ previous ones:
 | `benchmark smoke` | benches that stop compiling or hang |
 | `supply chain` | unmaintained or vulnerably-licensed dependencies |
 | `node bindings` | native binding and package metadata regressions |
+| `PDF/A conformance` | output that a checker rejects — see below |
+| `fuzz (css, pdf)` | parser crashes and hangs on untrusted bytes |
+
+The `PDF/A conformance` job is the one that has already earned its place. It sat
+in CI failing for two releases before anyone noticed why, and the reason was not
+a conformance problem at all: the checker was running out of memory and
+producing no report, which the job reported as a validation failure. Once it was
+made to run it found twelve real defects, including an ICC header written three
+bytes out of alignment and glyph ids that survived a renumbering subset and
+therefore drew the wrong shape. Neither would ever have been caught by a test in
+this crate.
 
 `unsafe_code = "forbid"` and `clippy::all = "deny"` are workspace-wide.
 

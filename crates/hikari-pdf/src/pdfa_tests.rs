@@ -218,6 +218,45 @@ fn xmp_packets_are_balanced(xmp: &str) -> bool {
 }
 
 #[test]
+fn dc_creator_is_a_flat_rdf_seq() {
+    // Pinned because this exact shape is load-bearing and unintuitive.
+    //
+    // The XMP specification declares `dc:creator` as a list of `Agent`, which
+    // would nest three levels deep. veraPDF rejects every encoding of that
+    // tried -- not as non-conformance, but by failing to parse the packet at
+    // all, after which `pdfaid:part` disappears and every metadata rule fails
+    // at once. Among the encodings that *do* parse, only this flat form also
+    // satisfies clauses 6.7.9/3 and 6.7.3/3.
+    //
+    // `rdf:Bag` here is the closest single-token regression and it does fail
+    // 6.7.9/3, so this assertion is not merely checking that some `<rdf:Seq>`
+    // string is present: it pins the container type, which is the part that
+    // matters.
+    let xmp = build_xmp(None, Some("Hikari Labs"), "Hikari");
+    assert!(
+        xmp.contains("<dc:creator><rdf:Seq><rdf:li>Hikari Labs</rdf:li></rdf:Seq></dc:creator>"),
+        "dc:creator must be a flat rdf:Seq of one name"
+    );
+}
+
+#[test]
+fn creator_tool_is_a_bare_value_not_a_sequence() {
+    // `xmp:CreatorTool` is matched against `/Creator` as a plain string.
+    // Wrapping it in an `rdf:Seq` is the shape the sibling property above
+    // needs, and getting them the same way is what broke both earlier: one
+    // clause then failed on the wrong container, the other on the wrong value.
+    let xmp = build_xmp(None, Some("Hikari Labs"), "Hikari");
+    assert!(
+        xmp.contains("<xmp:CreatorTool>Hikari</xmp:CreatorTool>"),
+        "xmp:CreatorTool must be a bare value"
+    );
+    assert!(
+        !xmp.contains("<xmp:CreatorTool><rdf:"),
+        "xmp:CreatorTool must not be wrapped in an RDF container"
+    );
+}
+
+#[test]
 fn xmp_carries_the_title_it_was_given() {
     let xmp = build_xmp(Some("Q3 Report"), Some("Hikari Labs"), "Hikari");
     assert!(xmp.contains("Q3 Report"));
@@ -225,18 +264,28 @@ fn xmp_carries_the_title_it_was_given() {
 }
 
 #[test]
-fn xmp_with_no_title_still_has_the_element() {
-    // The document information dictionary has no `/Title` when the caller sets
-    // none, and the XMP must agree. Writing an empty `<dc:title/>` and omitting
-    // it entirely are both accepted, but writing a *different* value is not --
-    // so this pins that "no title" produces an empty title rather than a
-    // placeholder.
+fn xmp_with_no_title_omits_the_element_entirely() {
+    // This test previously asserted the *opposite* and passed, which is worth
+    // recording: it pinned that an absent `/Title` produces an empty
+    // `<dc:title><rdf:Alt>...`.
+    //
+    // An empty element is a present value with an empty string, and the Info
+    // dictionary has no `/Title` at all, so the two disagree. That is clause
+    // 6.7.3 -- the same clause that later failed on `/Author`. Omitting the
+    // property is the agreeing form; an empty one is not, and the test was
+    // asserting the bug.
     let xmp = build_xmp(None, Some("Hikari Labs"), "Hikari");
-    assert!(xmp.contains("dc:title"));
+    assert!(
+        !xmp.contains("dc:title"),
+        "an absent /Title must be matched by an absent property, not an empty one"
+    );
     assert!(
         !xmp.contains("untitled"),
         "a placeholder would disagree with the Info dict"
     );
+    // The properties that *are* set must still be present.
+    assert!(xmp.contains("dc:creator"));
+    assert!(xmp.contains("xmp:CreatorTool"));
 }
 
 #[test]

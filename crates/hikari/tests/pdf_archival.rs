@@ -234,9 +234,23 @@ fn the_caveat_survives_in_the_public_docs() {
     // no checker was ever available. The test follows the wording, which means it
     // has to be edited when the claim is. That is deliberate: a caveat test that
     // never fails is not a caveat test.
+    // The claim moved twice. It was first "not validated", then "not claimed,
+    // because the checker has not run", and is now "verified": veraPDF 1.30.3
+    // validates the fixture at 129/129 rules and 523/523 checks.
+    //
+    // The test follows the wording on purpose. A caveat test that never fails is
+    // not a caveat test -- and this one has now caught two successive claims
+    // that the README did not actually support.
     assert!(
-        readme.contains("PDF/A conformance is not claimed"),
-        "the README does not carry the PDF/A caveat"
+        readme.contains("129/129 rules and 523/523 checks"),
+        "the README does not state the measured veraPDF result"
+    );
+    // Claiming conformance is not the same as having no caveats left. The
+    // subsetting cost is a real, user-visible property of PDF/A output and must
+    // stay in the README as long as it is true.
+    assert!(
+        readme.contains("PDF/A output embeds the font whole rather than subsetting"),
+        "the README does not record the PDF/A subsetting cost"
     );
     assert!(
         readme.contains("out of scope for 1.0"),
