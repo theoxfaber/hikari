@@ -1970,7 +1970,7 @@ pub fn parse_html(html: &str) -> Vec<Element> {
             while i < chars.len() && chars[i] != '<' {
                 i += 1;
             }
-            let text: String = chars[start..i].iter().collect();
+            let text: String = chars[start..i.min(chars.len())].iter().collect();
             if !text.trim().is_empty() {
                 let decoded = decode_entities(text.trim());
                 let node = Element::text(&decoded);
@@ -2009,7 +2009,7 @@ pub fn parse_html(html: &str) -> Vec<Element> {
             while i < chars.len() && chars[i] != '>' {
                 i += 1;
             }
-            let name: String = chars[start..i]
+            let name: String = chars[start..i.min(chars.len())]
                 .iter()
                 .collect::<String>()
                 .to_ascii_lowercase();
@@ -2034,7 +2034,7 @@ pub fn parse_html(html: &str) -> Vec<Element> {
         while i < chars.len() && !chars[i].is_whitespace() && chars[i] != '>' && chars[i] != '/' {
             i += 1;
         }
-        let tag: String = chars[start..i]
+        let tag: String = chars[start..i.min(chars.len())]
             .iter()
             .collect::<String>()
             .to_ascii_lowercase();
@@ -2061,7 +2061,7 @@ pub fn parse_html(html: &str) -> Vec<Element> {
             {
                 i += 1;
             }
-            let attr: String = chars[astart..i]
+            let attr: String = chars[astart..i.min(chars.len())]
                 .iter()
                 .collect::<String>()
                 .to_ascii_lowercase();
@@ -2089,7 +2089,7 @@ pub fn parse_html(html: &str) -> Vec<Element> {
                         while i < chars.len() && chars[i] != q {
                             i += 1;
                         }
-                        value = chars[vstart..i].iter().collect::<String>();
+                        value = chars[vstart..i.min(chars.len())].iter().collect::<String>();
                         // Only step over the terminator if there is one. An
                         // unterminated value leaves `i == chars.len()`, and
                         // incrementing regardless is how the index went out of
@@ -2103,7 +2103,7 @@ pub fn parse_html(html: &str) -> Vec<Element> {
                         while i < chars.len() && !chars[i].is_whitespace() && chars[i] != '>' {
                             i += 1;
                         }
-                        value = chars[vstart..i].iter().collect::<String>();
+                        value = chars[vstart..i.min(chars.len())].iter().collect::<String>();
                     }
                     // `attr=` with nothing after it: an empty value, not a
                     // quote. `i` stays where it is.
@@ -2120,7 +2120,20 @@ pub fn parse_html(html: &str) -> Vec<Element> {
                 _ => {}
             }
         }
-        i += 1; // consume '>'
+        // Consume the `>` -- but only if there is one. This is the same
+        // defect as the attribute-value branch above, in the same scanner: a tag
+        // that runs out of input before its close (`<sTyle `) left `i` at the
+        // end, and incrementing regardless pushed it one past, so the next
+        // `chars[i..]` sliced a range starting past the end of the slice.
+        //
+        // Found by the `css` fuzz target on the input `<sTyle ` -- mixed case,
+        // so the name lowercases to `style` and takes the script/style body
+        // skip, which is the one path that slices again immediately. The
+        // lowercase spelling `<style ` happens to survive by luck of the loop
+        // order, which is exactly why a hand-written test would not find it.
+        if i < chars.len() {
+            i += 1;
+        }
 
         let is_void = matches!(
             tag.as_str(),
@@ -2142,13 +2155,21 @@ pub fn parse_html(html: &str) -> Vec<Element> {
         // <script>/<style> bodies are skipped to their close tag.
         if tag == "script" || tag == "style" {
             let close = format!("</{tag}");
-            let rest: String = chars[i..].iter().collect::<String>().to_ascii_lowercase();
+            let rest: String = chars
+                .get(i..)
+                .unwrap_or_default()
+                .iter()
+                .collect::<String>()
+                .to_ascii_lowercase();
             if let Some(pos) = rest.find(&close) {
-                i += rest[..pos].chars().count();
+                i = (i + rest[..pos].chars().count()).min(chars.len());
                 while i < chars.len() && chars[i] != '>' {
                     i += 1;
                 }
-                i += 1;
+                // `</style` at the very end of the input has no `>` after it.
+                if i < chars.len() {
+                    i += 1;
+                }
             }
             continue;
         }

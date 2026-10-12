@@ -164,8 +164,30 @@ is not like that, which is precisely the gap a fuzzer closes and a test suite
 written alongside the parser does not.
 
 The regression is pinned by a unit test carrying the exact bytes, plus the
-twelve neighbouring shapes at end-of-input. After the fix: 794,576 CSS runs and
-33,010 PDF runs, no crash.
+twelve neighbouring shapes at end-of-input.
+
+**A second panic, same root cause.** With the first fixed, the fuzzer found
+another within seconds: `<sTyle ` again sliced past the end, at
+`range start index 8 out of range for slice of length 7`.
+
+The scanner advanced its cursor past the end of input when a tag ran out before
+its `>`, and the next slice started there. The mixed-case spelling is what
+exposed it: `<sTyle ` lowercases to `style`, one of the two tag names whose body
+is skipped, and that is the only path that slices again immediately. `<style `
+survives only by accident of the loop order — which is exactly why a
+hand-written test would not have found it, and why the two bugs were worth
+fixing as a class rather than one at a time.
+
+Rather than patch the next crash when it arrived, every tail-slice in the HTML
+scanner was made total. `i` is now clamped to `chars.len()` at each slice and
+`chars[i..]` goes through `.get().unwrap_or_default()`. Six slice sites.
+
+Regression tests cover the sixteen spellings the fuzzer actually produced and,
+more usefully, **every byte prefix of a tag-laden document** at a character
+boundary — so a future scanner change cannot reintroduce this on a spelling
+nobody thought to list.
+
+After both fixes: 484,052 CSS runs and 26,142 PDF runs, no crash.
 
 ### Fixed — a per-thread font shaper leaked on every thread
 

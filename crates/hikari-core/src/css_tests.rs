@@ -501,6 +501,65 @@ fn text_of(n: &css::Element) -> Vec<String> {
 }
 
 #[test]
+fn a_tag_with_no_close_does_not_panic() {
+    // Regression from the `css` fuzz target, on the input `<sTyle `.
+    //
+    // The scanner advanced its cursor past the end of the input when a tag ran
+    // out before its `>`, and the next slice then started past the end of the
+    // slice. The mixed-case spelling matters: it lowercases to `style`, which
+    // is one of the two tag names whose body is skipped, and that is the path
+    // that slices again immediately. `<style ` survives only by accident of the
+    // loop order, which is precisely why a hand-written test would miss it.
+    let cases = [
+        "<sTyle ",
+        "<style ",
+        "<script ",
+        "<Script ",
+        "<sty",
+        "<scr",
+        "<a",
+        "<a ",
+        "<a href",
+        "<div class=x",
+        "</",
+        "</style",
+        "</script",
+        "<!--",
+        "<!",
+        "<?",
+        "<a href=x",
+    ];
+    for html in cases {
+        let mut report = css::ParseReport::default();
+        // The contract is "does not panic", not "produces a particular tree":
+        // these inputs are all malformed, and which of them parse is a
+        // separate question that this test has no standing to assert.
+        let _ = css::html_to_tree(html, &mut report);
+    }
+}
+
+#[test]
+fn every_truncated_tag_prefix_parses_without_panicking() {
+    // The generalisation of the above, so a future scanner change cannot
+    // reintroduce this on a spelling nobody thought to list.
+    //
+    // Every prefix of a tag-laden document, and every prefix of a
+    // script/style body, because the panics lived at end-of-input in several
+    // different branches and one regression test only pins one of them.
+    let doc =
+        r#"<div class="a" id=b><script>x</script><style>y</style><!--c--><a href="u">t</a></div>"#;
+    for end in 1..=doc.len() {
+        // Only on char boundaries: a byte prefix can split a UTF-8 character,
+        // which is a different (and separately tested) concern.
+        if !doc.is_char_boundary(end) {
+            continue;
+        }
+        let mut report = css::ParseReport::default();
+        let _ = css::html_to_tree(&doc[..end], &mut report);
+    }
+}
+
+#[test]
 fn href_becomes_a_pdf_link() {
     let html = r#"<div><a href="https://example.com">click</a></div>"#;
     let mut report = ParseReport::default();
