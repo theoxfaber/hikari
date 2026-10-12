@@ -79,14 +79,95 @@ fn glyph_widths_are_exact_and_pinned() {
     // PDF/A-1 clause 6.3.6 requires `/W` to agree with the embedded program and
     // veraPDF compares them numerically, so this was a conformance failure as
     // well as a spacing one.
+    // The glyphs are numbered 1..13 because the font is now subset on this
+    // path. The same thirteen advances appear either way -- 317.8711, four
+    // times 636.23047, 684.08203, 751.9531, 684.08203, 612.79297, 277.83203,
+    // 579.10156, 411.1328, 629.8828 -- so only the numbering changed, not the
+    // metrics. It was previously a sparse array reaching gid 5042 because the
+    // subset had been abandoned, which cost the whole font.
+    //
+    // 629.8828 is the `fi` ligature. It was present before too, at gid 5042,
+    // but under the wrong *character*: the shaper reports the first character
+    // of a cluster, so it was recorded as `f` and remapped onto the plain `f`.
     let pdf = pdf_for("Hikari AVfi 0123");
     assert_eq!(
         widths(&pdf),
-        "/W [3 [317.8711] 19 [636.23047 636.23047 636.23047 636.23047] \
-         36 [684.08203] 43 [751.9531] 57 [684.08203] 68 [612.79297] \
-         76 [277.83203] 78 [579.10156] 85 [411.1328] 5042 [629.8828]]",
+        "/W [1 [317.8711 636.23047 636.23047 636.23047 636.23047 684.08203 \
+         751.9531 684.08203 612.79297 277.83203 579.10156 411.1328 629.8828]]",
         "glyph advance widths changed; characters would mis-space"
     );
+}
+
+#[test]
+fn a_ligature_is_not_remapped_onto_its_component() {
+    // The bug this pins produced no failure at all. It drew the wrong shape.
+    //
+    // The shaper reports one character per glyph, and for a ligature that
+    // character is the first of the cluster -- so the `fi` ligature (gid 5042
+    // in DejaVu Sans) was recorded as `f`. The ligature and the plain `f` then
+    // both claimed to be `f`, and the ligature was remapped onto the subset's
+    // plain `f`. The document rendered "office" with a real `f` where the `fi`
+    // should have been, and nothing here could see it: the corpus digests
+    // stayed stable (a wrong-but-consistent glyph is still deterministic), and
+    // only veraPDF noticed, by cross-reading the content stream against the
+    // embedded font program.
+    //
+    // The assertion is on **ToUnicode**, not on `/W`. An earlier version of
+    // this test checked widths and passed against the broken code, because the
+    // width array kept the *ligature's* advance while the glyph underneath was
+    // the plain `f`. The number was right and the shape was wrong -- which is
+    // exactly why the mismatch only surfaced as a conformance failure.
+    // `profile`, not `office`. Both contain "ffi", but only the first ligates:
+    // DejaVu has no U+FB03 triple ligature, so the shaper treats the two
+    // spellings differently and `office` never produces a standalone `fi`
+    // glyph at all. A test written against text that happens not to exercise
+    // the path is a test that passes for the wrong reason -- which is how the
+    // first version of this one did.
+    let ligated = pdf_for("profile");
+
+    // `fi` must extract as the precomposed ligature, not as `f`.
+    assert!(
+        ligated.contains("FB01"),
+        "the fi ligature must map to U+FB01 in ToUnicode"
+    );
+    assert!(
+        ligated.contains("0066"),
+        "a plain f must still map to U+0066"
+    );
+    // Both present: the document really does contain both characters, so the
+    // presence of FB01 is not an accident of the fixture text. If the ligature
+    // had been remapped onto `f` these would collapse to one gid and `f` would
+    // map to exactly one code point.
+
+    // And the ligature must be billed at the ligature's own advance. This is
+    // the half that veraPDF checks; the ToUnicode half is the one that proves
+    // the *glyph* is right.
+    let lig = single_width(&pdf_for("fi"));
+    let f = single_width(&pdf_for("f"));
+    assert!(
+        lig > f * 1.5,
+        "the fi ligature must be billed wider than one f: {lig} vs {f}"
+    );
+}
+
+/// The first glyph's advance in a `/W` array.
+///
+/// `/W` is the compact run-length form: `[<first-gid> [<w> <w> ...] ...]`, so
+/// the widths are in the *inner* array. Reading the outer one yields the
+/// starting gid, which is how the first version of this helper compared 1
+/// against 1 and passed a meaningless assertion.
+fn single_width(pdf: &str) -> f32 {
+    let w = widths(pdf);
+    let run = w.find('[').expect("/W run");
+    let inner = w[run + 1..].find('[').expect("/W value array") + run + 1;
+    let body = &w[inner + 1..];
+    let close = body.find(']').expect("/W value array close");
+    body[..close]
+        .split_whitespace()
+        .next()
+        .expect("a width")
+        .parse()
+        .expect("numeric width")
 }
 
 #[test]

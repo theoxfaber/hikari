@@ -121,10 +121,51 @@ feedback loop was ~40 seconds instead of a full Rust rebuild.
   renumbered ones. The remap is now required to be total; if it is not, the
   subset is abandoned and the font is embedded whole.
 
-That last one trades size for correctness: on the PDF/A fixture it costs the
-subset entirely (14 KB → 205 KB), because exactly one glyph — a composite the
-subsetter expands into components — is unrenumberable. A smaller file drawing
-the wrong glyph is worse than a larger one that does not.
+### Fixed — the subsetting regression, and the silent bug behind it
+
+The size-for-correctness trade above turned out not to be necessary. The
+subsetter was never the problem; the remap was.
+
+Each drawn glyph was paired with a character taken from the shaper, which
+reports **one character per glyph** — and for a ligature that character is the
+*first* of the cluster. So the `fi` ligature (gid 5042 in DejaVu Sans) was
+recorded as `f`. Inverting that map let the ligature and the plain `f` both
+claim to be `f`, and the ligature was remapped onto the subset's **plain `f`**.
+
+Two consequences, and only one of them was visible:
+
+- `/W` kept the *ligature's* advance while the glyph underneath was a plain `f`.
+  veraPDF cross-reads the two and failed clause 6.3.6/1.
+- The remap stopped being total, because the plain `f` had lost its character.
+  That is what abandoned the subset and cost the PDF/A path 15x in size.
+
+The rendered output was wrong the whole time — "office" drew a real `f` where
+the `fi` belonged — and nothing in this crate could see it. Corpus digests were
+stable, because a wrong-but-consistent glyph is still deterministic. Every test
+asserted metrics, and the metrics were fine.
+
+The fix asks the font rather than the shaper: build the glyph-to-character map
+from the original font's own `cmap`, which is the authority on which glyph
+stands for which character and already knows the precomposed forms. The
+subsetter keeps composites — probed directly, requesting gid 5042 yields a
+subset in which `fi` is present — so the lookup on the other side succeeds.
+
+**PDF/A fixture: 205 KB → 14.3 KB, and still 129/129 rules.** `ToUnicode` now
+records the ligature at its own gid as U+FB01 rather than as `f`, so extracted
+text round-trips to the ligature too.
+
+A regression test asserts on `ToUnicode` rather than on `/W`. An earlier
+version asserted widths and **passed against the broken code**, for exactly the
+reason described above: the width array was right and the glyph was wrong. That
+is recorded in the test, because it is the more useful thing to know about it.
+
+The test also uses `"profile"` rather than `"office"`. Both contain `ffi`, but
+DejaVu has no U+FB03 triple ligature, so only the first produces a standalone
+`fi` glyph — a test written against text that does not exercise the path passes
+for the wrong reason, which is how the first version of it did.
+
+Verified in both directions: with the bug reintroduced, the test fails; with
+the fix, it passes.
 
 ### Fixed — the fuzz jobs had never run, and then found a crash
 
@@ -278,12 +319,10 @@ empty string, which does not match an absent `/Title` — clause 6.7.3, the same
 clause that later failed on `/Author`. The test was pinning the bug, and it
 passed. It now asserts the property is omitted entirely.
 
-### Known limitation — PDF/A output is not subset
+### Known limitation — none outstanding for PDF/A
 
-As above: the PDF/A path embeds DejaVu Sans whole (368 KB, 205 KB compressed)
-because one composite glyph cannot be renumbered. Non-PDF/A output is unaffected
-and still subsets. Resolving this needs the subsetter to retain a glyph the
-character map does not reach, which it does not currently offer.
+The subsetting regression is resolved (see above); the PDF/A fixture is back to
+14.3 KB and still validates at 129/129.
 
 A benign `Missing OutputConditionIdentifier` warning remains on stderr. PDF/A-1
 clause 6.2.2 offers a choice between a registered `OutputConditionIdentifier`

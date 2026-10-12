@@ -461,10 +461,43 @@ impl PdfDoc {
                 Ok(f) => f,
                 Err(_) => continue,
             };
-            // Invert unicodes (gid -> char) to chars, then re-derive new gids.
+            // Which character does each drawn glyph actually *represent*?
+            //
+            // Taken from the original font's own cmap rather than from the
+            // `adv.ch` recorded during shaping. The shaper reports one
+            // character per glyph, and for a ligature that character is the
+            // first of the cluster -- so the `fi` ligature (gid 5042 in DejaVu
+            // Sans) was recorded as `f`. Inverting that gave two glyphs
+            // claiming one character, and the ligature was then remapped onto
+            // the subset's *plain* `f`. Not only did that draw the wrong shape,
+            // it made the remap non-total (the plain `f`'s own glyph had lost
+            // its character), which is what abandoned the subset entirely and
+            // cost the PDF/A path a 15x size regression.
+            //
+            // Asking the font is exact: the cmap is the authority on which
+            // glyph stands for which character, and it already knows about the
+            // precomposed forms. The subsetter keeps composites -- probed
+            // directly, requesting gid 5042 yields a subset where `fi` is
+            // present -- so the lookup on the other side succeeds.
             let mut chars: HashMap<char, u32> = HashMap::new();
-            for (gid, ch) in &font.unicodes {
-                chars.entry(*ch).or_insert(*gid);
+            {
+                let original = skrifa::FontRef::new(font.bytes).expect("registered font parses");
+                for (cp, gid) in original.charmap().mappings() {
+                    let Some(ch) = char::from_u32(cp) else {
+                        continue;
+                    };
+                    // `or_insert`: where several code points share a glyph
+                    // (a compatibility variant, say) the first one wins, which
+                    // matches the subsetter's own view.
+                    chars.entry(ch).or_insert(gid.to_u32());
+                }
+            }
+            // Only glyphs this document actually draws are of interest.
+            chars.retain(|_, gid| font.widths.contains_key(gid));
+            // The reverse map is needed per glyph, so build it once.
+            let mut orig_of: HashMap<u32, char> = HashMap::new();
+            for (ch, gid) in &chars {
+                orig_of.entry(*gid).or_insert(*ch);
             }
             let mut widths = BTreeMap::new();
             let mut unicodes = BTreeMap::new();
@@ -478,6 +511,11 @@ impl PdfDoc {
                         if let Some(w) = font.widths.get(orig) {
                             widths.insert(new_gid, *w);
                         }
+                        // ToUnicode wants the character this glyph stands for,
+                        // which is now the font's answer rather than the first
+                        // character of the cluster. For `fi` that is U+FB01,
+                        // so extracted text round-trips to the ligature instead
+                        // of to a lone `f`.
                         unicodes.insert(new_gid, *ch);
                     }
                     None => {

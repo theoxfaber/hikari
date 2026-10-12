@@ -555,26 +555,25 @@ Stated plainly, because a limitations section that hedges is worse than none.
   What a caller who needs it should do: render with `hikari`, post-process with
   a tool that does accessibility properly, and treat that tool as the thing
   responsible for the claim.
-- **PDF/A output embeds the font whole rather than subsetting it.** A PDF/A
-  document is roughly 205 KB where a non-PDF/A one is 14 KB, for the same page.
+- **A ligature used to be drawn as its own first letter, silently.** The shaper
+  reports one character per glyph, and for a ligature that character is the
+  first of the cluster -- so `fi` was recorded as `f` and remapped onto the
+  subset's plain `f`. The document rendered "office" with a real `f` where the
+  ligature belonged.
 
-  The cause is a correctness fix. The font subsetter renumbers glyphs, and a
-  referenced glyph that it does not renumber was being emitted with its
-  *original* id -- into a subset that no longer contained it. The document drew
-  the wrong shape instead of failing, and no test in this crate caught it,
-  because every glyph the tests checked was one of the renumbered ones. Only
-  veraPDF, cross-reading the content stream against the embedded program,
-  found it (PDF/A-1 clause 6.3.5/1).
+  Nothing here could see it. Corpus digests stayed stable, because a
+  wrong-but-consistent glyph is still deterministic, and every test asserted
+  metrics, which were correct: `/W` kept the *ligature's* advance while the
+  glyph underneath was an `f`. Only veraPDF caught it, by cross-reading the
+  width array against the embedded program (clause 6.3.6/1).
 
-  The fix requires the old-to-new glyph map to be *total*, and exactly one
-  glyph is not renumberable: a composite the subsetter expands into its
-  components. So the PDF/A path embeds DejaVu Sans whole. Non-PDF/A output is
-  unaffected and still subsets.
+  Fixed by asking the font's own `cmap` which character each glyph stands for,
+  rather than trusting the shaper's per-cluster character. The PDF/A fixture
+  went from 205 KB back to 14.3 KB and still validates at 129/129.
 
-  Undoing this properly needs the subsetter to retain a glyph the character
-  map does not reach, which it does not currently offer. Shipping a smaller
-  file that draws the wrong glyph is worse than shipping a larger one that does
-  not, so this is a known cost rather than a known bug.
+  Worth keeping as a shape: the bug was visible in the rendered output the
+  whole time and invisible to every check this project had, digest-based ones
+  included.
 - **No ecosystem yet.** No star history, no adopters, no battle-tested corpus.
   The determinism work exists precisely to make that corpus possible.
 - **The project is days old.** Every commit was made between 2026-09-29 and
@@ -692,8 +691,7 @@ Ordered by what most limits the project, not by what is easiest.
 - [x] **PDF/A-1b conformance**, behind `PdfOptions::pdfa`. Output intent with a
       generated sRGB ICC profile, XMP declaring `pdfaid:part` 1 and conformance
       B, and a content-derived trailer `/ID`. **Validated against veraPDF 1.30.3
-      at 129/129 rules and 523/523 checks**, in CI and locally. Caveat: on the
-      PDF/A path the font is embedded whole rather than subset — see Limitations.
+      at 129/129 rules and 501/501 checks**, in CI and locally.
 - [ ] **PDF/UA.** **Decided out of scope for 1.0**, with reasons recorded in
       Limitations. Tagged PDF is a rewrite of the content model, and WCAG
       conformance is not mechanically checkable, so it could not be verified here
