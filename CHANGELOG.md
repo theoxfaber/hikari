@@ -14,6 +14,11 @@ All twelve are fixed. The fixture now validates clean: **129 rules pass, 0 fail,
 first point at which PDF/A-1b conformance can honestly be claimed, and the claim
 is made here on the basis of that run rather than on the existence of the gate.
 
+**CI is fully green: 30 jobs, run concluded `success`.** That includes both fuzz
+targets, which had never executed a single input before this release, and the
+macOS x86_64 jobs, which had been queueing forever against a retired runner
+label.
+
 ### The gate could never have gone green
 
 Two separate faults, and the second one is why the first went unnoticed.
