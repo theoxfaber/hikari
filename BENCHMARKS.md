@@ -42,31 +42,73 @@ every pixel, not by how much text is on it. A benchmark that varied only the tex
 and reported no difference is measuring the fill, and pretending otherwise would
 be the kind of "optimisation" that lands on the wrong part of the pipeline.
 
-## What this document does not contain
+## Comparison — Satori + resvg
 
-**No comparison against any other renderer.** v0.7 published one, it was taken
-from a debug build, and it was withdrawn. This document does not replace it with
-a fairer one.
+This section did not exist for six releases, and the reason given was that a
+fair comparison had to be earned. That was a fair position and an unhelpful one:
+it declined the work rather than doing it. The harness now exists
+(`scripts/compare/`), so this section is measured rather than asserted.
 
-The reason is not that the comparison would be unflattering. It is that a fair
-one has to be *earned*, and this document has no budget to earn it:
+**Same document, same machine, same measurement code.** 1200x630, M2/macOS
+ARM64, 50 iterations, best and median reported.
 
-- **Equivalent input.** Satori takes an HTML/CSS document, resvg takes SVG. This
-  library takes a typed node tree. A benchmark that ports the tree into their
-  input format is measuring the port as much as the renderer, and a benchmark
-  that skips the port is measuring something neither of them does.
-- **Equivalent output.** Any comparison needs both sides producing the same
-  image. Matching that closely enough to attribute a time difference to the
-  renderer rather than to the pixels needs a pixel-diff harness, which is its own
-  piece of work and its own source of disagreement about who won.
-- **A machine neither of us controls.** Numbers on a shared CI runner vary by
-  more than the differences being claimed.
+| Stage | Best | Median |
+|---|---|---|
+| `satori` HTML tree -> SVG | 0.42 ms | 0.55 ms |
+| `resvg` SVG -> PNG | 7.96 ms | 8.37 ms |
+| **satori + resvg, end to end** | **8.38 ms** | **8.92 ms** |
+| `hikari` HTML -> PNG | **3.47 ms** | **3.59 ms** |
 
-All three can be done. None is done here, and until one is, a number in this
-document comparing against anything else would be an assertion rather than a
-measurement — which is the thing this document exists to avoid.
+**hikari is 2.5x faster end to end.** 94% of the Satori pipeline is resvg's
+rasterisation; Satori's own layout pass is 0.55 ms, close to hikari's whole
+pipeline.
 
-## Output size
+### Output equivalence, measured
+
+Not eyeballed. Both images are compared pixel by pixel, and because the two
+renderers place this document differently, the search reports the vertical
+offset that minimises the difference and the residual at that offset:
+
+| | differing pixels | after best vertical shift |
+|---|---|---|
+| as rendered | 10.16% | 1.23% at dy=68px |
+| with `padding` removed | 1.69% | **1.23% at dy=4px** |
+
+The 1.23% residual is constant across every variant tested and is antialiasing
+on glyph edges — mean channel delta 0.55/255. The two rasterisers agree on the
+image. What they do not agree on is layout: hikari places this document 68px
+from where Satori does, and removing `padding` collapses that to 4px, so the
+disagreement is in how padding and `justify-content` compose in a column flex
+container. That is a real behavioural difference and it is stated here rather
+than smoothed over.
+
+### What these numbers do not say
+
+- **`resvg` is `@resvg/resvg-js`**, the Node binding, not the Rust crate. The
+  two are the same rasteriser but not the same overhead.
+- **hikari skips three properties in this document** — `font-family`,
+  `font-weight`, `margin-top` — so it does strictly less work. Removing them
+  from the input to make the comparison flattering would have been dishonest;
+  leaving them in and reporting them is the point.
+- **A `resvg` figure of 117 ms also exists** and is not reported above. It is
+  what you get if the `Resvg` instance is constructed inside the timing loop,
+  which re-parses the SVG and reloads the font every iteration. The first
+  version of this harness did exactly that and appeared to show a 15x lead.
+  A benchmark that measures construction rather than rendering is worse than no
+  benchmark, because it is plausible.
+- **One machine, one run.** No cross-machine figures, no CI comparison job.
+- **Two runtimes.** Rust native against Node. Some of the difference is the
+  runtime boundary, and this cannot be separated from the rasterisers without a
+  third implementation.
+
+### The thing worth keeping
+
+Handing Satori the HTML string directly does not fail loudly. It renders the
+markup as literal text, emits an SVG full of `x="NaN"`, produces a blank white
+page — and then benchmarks as the fastest renderer in the comparison. That is
+what an unfair comparison looks like from the inside: not a wrong number, but a
+number describing a different computation than the one claimed.
+Output size
 
 | Artifact | Bytes |
 |---|---|
@@ -195,6 +237,20 @@ not been measuring anything.
 - **v0.7 claimed a large speed advantage over other renderers, from a debug
   build.** The comparison was withdrawn: it measured a debug build with weak
   compression. The warm-render numbers in this file are release numbers.
+- **v0.7–v0.21.9 published no comparison at all**, on the grounds that a fair
+  one could not be earned without a pixel-diff harness and a port. That was
+  correct about the difficulty and wrong about the response: it declined the
+  work for six releases instead of building the harness, which took an
+  afternoon and made the comparison possible. The withdrawal was honest and it
+  was also a way of not doing the thing. v0.21.10 publishes a measured
+  comparison with its caveats attached.
+
+  Building it also produced the numbers this file would otherwise have had to
+  take on trust: a `resvg` figure of 117 ms that is really SVG parsing and font
+  loading, and a Satori pipeline that renders an HTML string as literal text and
+  benchmarks as the fastest thing in the room. Neither is in the comparison
+  table. Both are here because a benchmark document that has never been wrong
+  has probably not been measuring anything.
 - **v0.13 recorded a "kerning/ligature tradeoff" as an accepted cost of font
   subsetting.** It was not a tradeoff. The subsetter was dropping the layout
   tables, so kerning and ligatures were silently absent. Fixed in v0.18.

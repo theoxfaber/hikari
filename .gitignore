@@ -39,3 +39,6 @@ pdfa-fixture.pdf
 fuzz/corpus/
 fuzz/artifacts/
 fuzz/target/
+
+# Scratch output from scripts/compare/ (BENCHMARKS.md cross-renderer harness).
+*.rgba
