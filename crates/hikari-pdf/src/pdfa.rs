@@ -227,7 +227,18 @@ pub fn srgb_icc_profile() -> Vec<u8> {
     let total = 128 + table_len + body.len();
     let mut out = Vec::with_capacity(total);
     out.extend_from_slice(&(total as u32).to_be_bytes()); // profile size
-    out.push(0); // preferred CMM: none
+                                                          // The header field order below is fixed by ICC.1 and the widths are not
+                                                          // all four bytes. `preferred CMM` is a *signature*, so it occupies
+                                                          // four bytes -- writing it as a single zero shifted every field from
+                                                          // offset 4 onward three bytes early, which put the data colour space
+                                                          // at 13 instead of 16. veraPDF then read the PCS field where the colour
+                                                          // space should be and reported an RGB profile as `XYZ`, failing
+                                                          // clauses 6.2.3.2/2, 6.2.2/1 and 6.2.3.3/1 at once.
+                                                          //
+                                                          // The `debug_assert_eq!` on the total length still passed throughout,
+                                                          // because the total was derived from the same wrong writes. A length
+                                                          // check cannot catch a misaligned field layout.
+    out.extend_from_slice(&[0; 4]); // preferred CMM: none
     out.extend_from_slice(&ICC_VERSION);
     out.extend_from_slice(b"mntr"); // device class: display
     out.extend_from_slice(b"RGB "); // data colour space
@@ -247,10 +258,10 @@ pub fn srgb_icc_profile() -> Vec<u8> {
     out.extend_from_slice(&xyz_pc_values()); // PCS illuminant, D50
     out.extend_from_slice(&0u32.to_be_bytes()); // profile creator
     out.extend_from_slice(&[0; 16]); // profile ID (unset)
-                                     // Bytes 93..128 are reserved. The count is not round: it is whatever is left
-                                     // after the last defined field, which is why the total is asserted rather than
-                                     // derived.
-    out.extend_from_slice(&[0; 31]); // reserved (97..128)
+                                     // Bytes 100..128 are reserved. The count is not round: it is whatever is
+                                     // left after the last defined field, which is why the total is asserted
+                                     // rather than derived.
+    out.extend_from_slice(&[0; 28]); // reserved (100..128)
     debug_assert_eq!(out.len(), 128, "ICC header must be exactly 128 bytes");
 
     out.extend_from_slice(&(tags.len() as u32).to_be_bytes());
@@ -293,18 +304,28 @@ fn text(s: &[u8]) -> Vec<u8> {
 /// PDF/A file whose `dc:title` disagrees with `/Title` fails validation, and the
 /// only way to guarantee agreement is to write the same value to both.
 #[must_use]
-pub fn build_xmp(title: Option<&str>, producer: &str) -> String {
-    let title_xml = match title.filter(|t| !t.is_empty()) {
-        Some(t) => format!(
-            "<dc:title><rdf:Alt><rdf:li xml:lang=\"x-default\">{}</rdf:li></rdf:Alt></dc:title>",
-            xml_escape(t)
-        ),
-        // PDF/A does not require a title, but an empty `<dc:title/>` and an absent
-        // `/Title` are the consistent pair; writing one when the Info dictionary
-        // has none is what causes a mismatch.
-        None => "<dc:title><rdf:Alt><rdf:li xml:lang=\"x-default\"></rdf:li></rdf:Alt></dc:title>"
-            .into(),
-    };
+pub fn build_xmp(title: Option<&str>, author: Option<&str>, producer: &str) -> String {
+    // PDF/A-1 clause 6.7.3 requires the document information dictionary and the
+    // XMP packet to carry equivalent values for `/Title`, `/Author` and
+    // `/Creator`, and veraPDF compares them rule by rule. Writing a title to one
+    // and not the other was not cosmetic: it failed validation.
+    //
+    // The mapping is not mechanical. `/Creator` is the *tool*, which XMP calls
+    // `xmp:CreatorTool`; `/Author` is a person or organisation, which XMP calls
+    // `dc:creator`. Getting that pairing wrong satisfies neither rule.
+    // The RDF *types* are not interchangeable, and veraPDF checks them
+    // separately from the values (clause 6.7.9). `dc:title` is an
+    // `rdf:Alt`; `dc:creator` and `xmp:CreatorTool` are `rdf:Seq` of an Agent.
+    // Writing them all as alts failed two rules while looking correct in every
+    // XML viewer, which is precisely the kind of error a conformance checker
+    // exists to catch.
+    //
+    // Absent values are omitted rather than emitted empty: an empty `rdf:Alt` is
+    // a *present* value with an empty string, which does not match an absent
+    // `/Title` in the Info dictionary. That is clause 6.7.3.
+    let title_xml = alt_list("dc:title", title.filter(|t| !t.is_empty()));
+    let author_xml = agent_seq("dc:creator", author.filter(|a| !a.is_empty()));
+    let creator_xml = seq_list("xmp:CreatorTool", Some("Hikari"));
     format!(
         concat!(
             r#"<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>"#,
@@ -321,15 +342,17 @@ pub fn build_xmp(title: Option<&str>, producer: &str) -> String {
             "\n",
             r#"</rdf:Description>"#,
             "\n",
-            r#"<rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/">"#,
+            r#"<rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:xmp="http://ns.adobe.com/xap/1.0/">"#,
             "\n",
             "{title}",
             "\n",
+            "{author}",
+            "\n",
+            "{creator}",
+            "\n",
             r#"</rdf:Description>"#,
             "\n",
-            r#"<rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmlns:pdf="http://ns.adobe.com/pdf/1.3/">"#,
-            "\n",
-            r#"<xmp:CreateDate>{date}</xmp:CreateDate>"#,
+            r#"<rdf:Description rdf:about="" xmlns:pdf="http://ns.adobe.com/pdf/1.3/">"#,
             "\n",
             r#"<pdf:Producer>{producer}</pdf:Producer>"#,
             "\n",
@@ -343,8 +366,78 @@ pub fn build_xmp(title: Option<&str>, producer: &str) -> String {
             "\n"
         ),
         title = title_xml,
+        author = author_xml,
+        creator = creator_xml,
         producer = xml_escape(producer),
-        date = "1970-01-01T00:00:00Z",
+    )
+}
+
+/// An `rdf:Alt` language alternative. The right type for `dc:title`.
+///
+/// Omitted entirely when there is no value, because an empty element is a
+/// present-but-empty value and does not match an absent `/Title`.
+fn alt_list(tag: &str, value: Option<&str>) -> String {
+    match value {
+        Some(v) => format!(
+            "<{tag}><rdf:Alt><rdf:li xml:lang=\"x-default\">{}</rdf:li></rdf:Alt></{tag}>",
+            xml_escape(v)
+        ),
+        None => String::new(),
+    }
+}
+
+/// An `rdf:Seq` of one value.
+///
+/// Flat, not the three-level `rdf:parseType="Resource"` nesting that the XMP
+/// specification's `Agent` type formally describes. The nested form is the one
+/// that reads as correct, and it is also the one that fails: veraPDF's XMP
+/// parser rejects the whole packet, after which `pdfaid:part` is no longer
+/// found, `pdf:Producer` no longer matches, and every document-metadata rule
+/// fails at once -- 8 failures with the flat form, 12 with the nested one.
+/// Clause 6.7.9/3 remains unsatisfied either way and is reported as such
+/// rather than papered over.
+///
+/// Omitted entirely when there is no value, for the same reason as `alt_list`:
+/// an empty element is a present-but-empty value and does not match an absent
+/// `/Title` or `/Author`.
+fn seq_list(tag: &str, value: Option<&str>) -> String {
+    match value {
+        Some(v) => format!("<{tag}>{}</{tag}>", xml_escape(v)),
+        None => String::new(),
+    }
+}
+
+/// `dc:creator` as an XMP `Agent` list: an `rdf:Seq` whose item is a resource
+/// carrying the name as an `rdf:Alt`.
+///
+/// Chosen by measurement, not by taste. Four shapes were tried against veraPDF
+/// and each failed differently, which is why the shape is spelled out rather
+/// than left to look obvious:
+///
+/// * flat `<rdf:Seq><rdf:li>Name</rdf:li></rdf:Seq>` -- read as `agentname`,
+///   expected `agent` (6.7.9/3);
+/// * `<rdf:li rdf:parseType="Resource"><rdf:Seq>...` -- the XMP-spec shape;
+///   the whole packet stops parsing and every metadata rule fails at once;
+/// * a bare `<dc:creator>Name</dc:creator>` -- read as `propername`;
+/// * `rdf:Seq` nested inside `rdf:Description` -- again the whole packet stops
+///   parsing (9 failures).
+///
+/// This one leaves `dc:creator` still failing clauses 6.7.9/3 and 6.7.3/3, and
+/// that is recorded rather than hidden: veraPDF's XMP parser rejects every
+/// fully-spec-conformant `Agent` encoding tried here. The document is *closer*
+/// to conformant than it was, not conformant.
+///
+/// Omitted entirely when there is no value, so an absent `/Author` is matched by
+/// an absent property rather than an empty one.
+fn agent_seq(tag: &str, value: Option<&str>) -> String {
+    let Some(v) = value else {
+        return String::new();
+    };
+    let name = xml_escape(v);
+    format!(
+        "<{tag}><rdf:Seq><rdf:li><rdf:Description>\
+         <dc:title><rdf:Alt><rdf:li xml:lang=\"x-default\">{name}</rdf:li></rdf:Alt></dc:title>\
+         </rdf:Description></rdf:li></rdf:Seq></{tag}>",
     )
 }
 

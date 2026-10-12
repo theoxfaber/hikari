@@ -67,8 +67,38 @@ fn the_output_profile_is_a_display_icc_profile() {
     // `mntr` is what makes the profile display-class, and PDF/A checks for it
     // specifically. It lives inside the (compressed or not) profile bytes.
     let icc = hikari_pdf::pdfa::srgb_icc_profile();
-    assert_eq!(&icc[9..13], b"mntr");
-    assert_eq!(&icc[33..37], b"acsp");
+    // ICC.1 header offsets. These were asserted before and were *wrong*: the
+    // writer emitted `preferred CMM` as one byte, shifting every field from
+    // offset 4 onward three bytes early, so these assertions were reading
+    // `device class` where they meant `version` and the real `acsp` signature
+    // never appeared where the spec puts it.
+    //
+    // The test passed against the broken header because it was written to match
+    // the broken header. veraPDF is what found the actual fault (clauses
+    // 6.2.2/1, 6.2.3.2/2 and 6.2.3.3/1), by reading the profile and reporting
+    // an RGB profile as `XYZ`.
+    assert_eq!(&icc[4..8], b"\0\0\0\0", "preferred CMM must be 4 bytes");
+    assert_eq!(&icc[12..16], b"mntr", "device class must be display");
+    assert_eq!(&icc[16..20], b"RGB ", "data colour space must be RGB");
+    assert_eq!(&icc[20..24], b"XYZ ", "PCS must be XYZ");
+    assert_eq!(&icc[36..40], b"acsp", "profile file signature");
+    // Tag count lives immediately after the 128-byte header, and the table that
+    // follows must fit inside the profile. Asserted as a consistency relation
+    // rather than a literal: a hardcoded count here would just be another
+    // number to drift out of step with the writer, which is how the offsets
+    // above went wrong in the first place.
+    let tags = u32::from_be_bytes([icc[128], icc[129], icc[130], icc[131]]) as usize;
+    assert!(tags > 0, "profile declares no tags");
+    assert!(
+        icc.len() >= 132 + tags * 12,
+        "the tag table claims {tags} tags but the profile is only {} bytes",
+        icc.len()
+    );
+    assert_eq!(
+        u32::from_be_bytes([icc[0], icc[1], icc[2], icc[3]]) as usize,
+        icc.len(),
+        "the header's declared size must equal the real size"
+    );
 }
 
 #[test]
@@ -86,7 +116,7 @@ fn xmp_decompresses_to_a_conformance_declaration() {
     // The definitive check: pull the Flate stream back out and look at it. A
     // compressed packet that does not declare the part is the failure mode, and
     // it is invisible to any substring search over the raw bytes.
-    let xmp = hikari_pdf::pdfa::build_xmp(Some("Q3 Report"), "Hikari");
+    let xmp = hikari_pdf::pdfa::build_xmp(Some("Q3 Report"), Some("Hikari Labs"), "Hikari");
     assert!(xmp.contains("<pdfaid:part>1</pdfaid:part>"));
     assert!(xmp.contains("<pdfaid:conformance>B</pdfaid:conformance>"));
     // Round-trip it the way the writer does, so the compressed bytes a reader
@@ -153,7 +183,7 @@ fn the_document_title_agrees_between_info_and_xmp() {
         "the title is missing from the document information dictionary"
     );
     // And the XMP side, built from the same option.
-    let xmp = hikari_pdf::pdfa::build_xmp(Some("Q3 Report"), "Hikari");
+    let xmp = hikari_pdf::pdfa::build_xmp(Some("Q3 Report"), Some("Hikari Labs"), "Hikari");
     assert!(xmp.contains("Q3 Report"));
 }
 

@@ -59,44 +59,49 @@ fn the_icc_header_is_the_size_the_header_says() {
 
 #[test]
 fn the_icc_signature_and_version_are_right() {
-    // Offsets are the ICC header layout, not positions relative to each field:
-    // the header has a single byte for the preferred CMM at offset 4, and every
-    // field after it shifts by one from the obvious count. Getting that wrong is
-    // how a profile ends up self-consistent and unreadable.
+    // Offsets are the ICC header layout. Every field there is four bytes,
+    // including `preferred CMM` at 4..8 -- getting that wrong shifts everything
+    // after it three bytes early, which is how a profile ends up
+    // self-consistent (its declared size still matched its real size) and
+    // unreadable to any other implementation.
+    //
+    // These offsets were written against that broken layout and so agreed with
+    // it. veraPDF read the shifted header, found `XYZ ` where the data colour
+    // space should be, and failed PDF/A clauses 6.2.2/1, 6.2.3.2/2 and
+    // 6.2.3.3/1.
     let icc = srgb_icc_profile();
-    // 5..9 version, 33..37 file signature, 9..13 device class.
-    assert_eq!(&icc[5..9], &ICC_VERSION, "expected an ICC 2.1 profile");
-    assert_eq!(&icc[33..37], b"acsp", "ICC file signature");
-    assert_eq!(&icc[9..13], b"mntr", "device class must be display");
+    assert_eq!(&icc[8..12], &ICC_VERSION, "expected an ICC 2.1 profile");
+    assert_eq!(&icc[36..40], b"acsp", "ICC file signature");
+    assert_eq!(&icc[12..16], b"mntr", "device class must be display");
 }
 
 #[test]
 fn the_preferred_cmm_is_absent() {
-    // Byte 4 is the preferred CMM manufacturer signature; zero means "none",
-    // which is the honest value for a profile this crate builds.
-    assert_eq!(icc_header_byte(&srgb_icc_profile(), 4), 0);
-}
-
-fn icc_header_byte(icc: &[u8], at: usize) -> u8 {
-    icc[at]
+    // Bytes 4..8 are the preferred CMM manufacturer signature; all zero means
+    // "none", which is the honest value for a profile this crate builds. It is
+    // a four-byte signature, not a single byte -- see the note on the offsets
+    // above for what getting that wrong cost.
+    let icc = srgb_icc_profile();
+    assert_eq!(&icc[4..8], b"\0\0\0\0");
 }
 
 #[test]
 fn the_icc_colour_spaces_are_srgb_to_xyz() {
     let icc = srgb_icc_profile();
-    // 13..17 data colour space, 17..21 PCS. Both shift by the CMM byte relative
-    // to a count that forgets it.
-    assert_eq!(&icc[13..17], b"RGB ", "data colour space");
-    assert_eq!(&icc[17..21], b"XYZ ", "PCS");
-    // The PCS illuminant is a `XYZNumber` at 65..77: X, then Y, then Z, each
-    // s15Fixed16. D50 is X=0, Y=1.0, Z=0.
-    assert_eq!(be32(&icc, 65), 0, "PCS illuminant X should be 0");
+    // 16..20 data colour space, 20..24 PCS.
+    assert_eq!(&icc[16..20], b"RGB ", "data colour space");
+    assert_eq!(&icc[20..24], b"XYZ ", "PCS");
+    // The PCS illuminant is a `XYZNumber` at 68..80: X, then Y, then Z, each
+    // s15Fixed16. D50 is X=0, Y=1.0, Z=0. These offsets were three bytes
+    // early for the same reason the colour-space offsets were; Y read as 0.0
+    // instead of 1.0, so the profile declared a black PCS illuminant.
+    assert_eq!(be32(&icc, 68), 0, "PCS illuminant X should be 0");
     assert_eq!(
-        be32(&icc, 69),
+        be32(&icc, 72),
         0x0001_0000,
         "PCS illuminant Y should be 1.0"
     );
-    assert_eq!(be32(&icc, 73), 0, "PCS illuminant Z should be 0");
+    assert_eq!(be32(&icc, 76), 0, "PCS illuminant Z should be 0");
 }
 
 #[test]
@@ -187,7 +192,7 @@ fn the_profile_is_small() {
 
 #[test]
 fn xmp_declares_part_one_and_conformance_b() {
-    let xmp = build_xmp(Some("Report"), "Hikari");
+    let xmp = build_xmp(Some("Report"), Some("Hikari Labs"), "Hikari");
     assert!(xmp.contains("<pdfaid:part>1</pdfaid:part>"));
     assert!(xmp.contains("<pdfaid:conformance>B</pdfaid:conformance>"));
     // The namespace declarations are required; an RDF block without them is not
@@ -201,7 +206,11 @@ fn xmp_declares_part_one_and_conformance_b() {
 fn xmp_is_wrapped_in_an_xpacket() {
     // PDF/A requires the XMP packet to be delimited by xpacket PIs, not just to
     // be XML.
-    assert!(xmp_packets_are_balanced(&build_xmp(None, "Hikari")));
+    assert!(xmp_packets_are_balanced(&build_xmp(
+        None,
+        Some("Hikari Labs"),
+        "Hikari"
+    )));
 }
 
 fn xmp_packets_are_balanced(xmp: &str) -> bool {
@@ -210,7 +219,7 @@ fn xmp_packets_are_balanced(xmp: &str) -> bool {
 
 #[test]
 fn xmp_carries_the_title_it_was_given() {
-    let xmp = build_xmp(Some("Q3 Report"), "Hikari");
+    let xmp = build_xmp(Some("Q3 Report"), Some("Hikari Labs"), "Hikari");
     assert!(xmp.contains("Q3 Report"));
     assert!(xmp.contains(r#"xml:lang="x-default""#));
 }
@@ -222,7 +231,7 @@ fn xmp_with_no_title_still_has_the_element() {
     // it entirely are both accepted, but writing a *different* value is not --
     // so this pins that "no title" produces an empty title rather than a
     // placeholder.
-    let xmp = build_xmp(None, "Hikari");
+    let xmp = build_xmp(None, Some("Hikari Labs"), "Hikari");
     assert!(xmp.contains("dc:title"));
     assert!(
         !xmp.contains("untitled"),
@@ -236,7 +245,7 @@ fn xmp_escapes_markup_in_the_title() {
     // and both get the same value. A title with an ampersand is the shortest way
     // to produce a malformed packet, and a malformed packet fails validation
     // before any other rule is reached.
-    let xmp = build_xmp(Some("Tom & Jerry <Ltd> \"x\""), "Hikari 1.0");
+    let xmp = build_xmp(Some("Tom & Jerry <Ltd> \"x\""), None, "Hikari 1.0");
     assert!(xmp.contains("Tom &amp; Jerry &lt;Ltd&gt;"));
     assert!(
         !xmp.contains("<Ltd>"),
@@ -254,7 +263,10 @@ fn xmp_is_deterministic() {
     // determinism guarantee this crate makes everywhere else does not hold for
     // the PDF path. Note the fixed creation date: a clock here would make every
     // render of the same tree differ.
-    assert_eq!(build_xmp(Some("t"), "p"), build_xmp(Some("t"), "p"));
+    assert_eq!(
+        build_xmp(Some("t"), None, "p"),
+        build_xmp(Some("t"), None, "p")
+    );
 }
 
 #[test]
@@ -304,7 +316,7 @@ fn the_document_id_handles_empty_and_single_byte_input() {
 fn deflate_round_trips() {
     // Used for the XMP and ICC streams. A stream that cannot be decompressed is
     // a PDF that cannot be opened, and a broken deflate call is silent.
-    let original = build_xmp(Some("t"), "p").into_bytes();
+    let original = build_xmp(Some("t"), None, "p").into_bytes();
     let packed = deflate(&original);
     let mut out = Vec::new();
     // Through the read interface, which is what a PDF reader actually does.

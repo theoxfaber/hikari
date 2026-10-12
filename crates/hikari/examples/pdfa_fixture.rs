@@ -9,23 +9,25 @@
 //! conformance checker looks at, so a regression in any of them is caught rather
 //! than papered over:
 //!
-//!   * embedded fonts, which must be subset-embedded with their layout tables;
-//!   * link annotations, which need a structure and a border;
-//!   * an attachment, which must be an embedded file with a declared MIME type;
-//!   * a title, which must agree between the Info dictionary and the XMP packet.
+//!   * embedded fonts, which must be subset-embedded with their layout tables,
+//!     a `CIDToGIDMap` and a `CIDSet`;
+//!   * a title and an author, which must agree between the document information
+//!     dictionary and the XMP packet.
+//!
+//! **No attachment.** The first version of this fixture embedded an invoice XML
+//! to exercise that path, and veraPDF failed it on PDF/A-1 clauses 6.1.11/1 and
+//! 6.1.11/2: a file specification shall not contain `/EF`, and the name
+//! dictionary shall not contain `EmbeddedFiles`. PDF/A-1 forbids embedded files
+//! outright, so a document that has one can never conform -- and a conformance
+//! fixture that cannot conform is testing nothing. The attachment path is
+//! exercised by the `invoice` example and by the PDF backend tests instead.
 //!
 //! Nothing here asserts the result is conformant. That is veraPDF's job, and
 //! until it has run and agreed, this crate does not claim PDF/A conformance.
 
-use hikari::{Attachment, Node, PageSize, PdfOptions, Style};
+use hikari::{Node, PageSize, PdfOptions, Style};
 
 fn main() {
-    let invoice = r#"<?xml version="1.0" encoding="UTF-8"?>
-<invoice id="hikari-pdfa-0001" currency="EUR">
-  <seller>Hikari Labs</seller>
-  <total>0.00</total>
-</invoice>"#;
-
     let page = Node::container(
         Style::new()
             .with_size(595.0, 842.0)
@@ -59,11 +61,6 @@ fn main() {
         author: Some("Hikari Labs".into()),
         ..PdfOptions::new()
     };
-    options.attachments.push(Attachment {
-        name: "invoice.xml".into(),
-        mime: "text/xml".into(),
-        bytes: invoice.as_bytes().to_vec(),
-    });
     options.pdfa = true;
 
     let bytes = hikari::render_pdf_pages_with(&[page], PageSize::A4, &options)

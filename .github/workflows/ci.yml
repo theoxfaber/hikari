@@ -444,7 +444,14 @@ jobs:
           # conformance" for a run that had produced no report at all. Those two
           # failures are different and conflating them sends whoever reads the log
           # looking for a conformance problem that is not there.
-          docker run --rm -v "$PWD:/work" verapdf/cli:v1.30.3 \
+          # `JAVA_OPTS=-Xmx2g` is not a tuning knob, it is the difference
+          # between a report and no report. The image ships with `JAVA_OPTS`
+          # empty, and veraPDF loading a PDF/A-1 validation profile in a
+          # default heap dies with "OutOfMemory caught when validating item"
+          # *and still exits non-zero*. The first version of this job read
+          # that as a conformance failure rather than as a crashed checker, and
+          # the report it would have needed was never written.
+          docker run --rm -e JAVA_OPTS="-Xmx2g" -v "$PWD:/work" verapdf/cli:v1.30.3 \
             --format text --flavour 1b /work/pdfa-fixture.pdf 2>&1 | tee verapdf-report.txt
           status=${PIPESTATUS[0]}
           echo "veraPDF exit status: $status"
@@ -460,7 +467,22 @@ jobs:
           if grep -qi "is in accordance with PDF/A-1" verapdf-report.txt; then
             echo "veraPDF: conforms to PDF/A-1b"
           else
-            echo "::error::veraPDF did not confirm PDF/A-1b conformance. Report above."
+            # An XML report alongside the text one: the text report says only
+            # FAIL, which is not actionable. The failing clause numbers are the
+            # whole point of running the checker.
+            docker run --rm -e JAVA_OPTS="-Xmx2g" -v "$PWD:/work" verapdf/cli:v1.30.3 \
+              --format xml --flavour 1b /work/pdfa-fixture.pdf > verapdf-report.xml 2>/dev/null || true
+            # Report which clauses failed, not just "did not confirm". The text
+            # report says only FAIL; the XML carries the clause numbers, and
+            # those are the actionable part.
+            echo "::group::failing PDF/A-1b clauses"
+            tr '<' '\n' < verapdf-report.xml \
+              | grep -A3 'rule specification=' \
+              | grep -E 'clause="[0-9]' \
+              | sed -E 's/.*clause="([^"]*)" testNumber="([0-9]+)".*/- clause \1\/\2/' \
+              || echo "  (none parsed)"
+            echo "::endgroup::"
+            echo "::error::veraPDF did not confirm PDF/A-1b conformance. Clauses above."
             exit 1
           fi
 

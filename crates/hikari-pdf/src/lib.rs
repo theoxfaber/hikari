@@ -352,7 +352,10 @@ impl PdfDoc {
                     }
                     let slot = self.font_for(adv)?;
                     let (gid, width) = match slot {
-                        FontSlot::Primary(_) => (adv.gid, adv.advance / px * 1000.0),
+                        FontSlot::Primary(i) => {
+                            let f = &self.fonts[i];
+                            (adv.gid, f.glyph_width(adv.gid))
+                        }
                         FontSlot::Fallback => {
                             let fb = self.fallback.as_ref().expect("checked");
                             (fb.gid_of(adv.ch)?, fb.exact_width(adv.ch))
@@ -367,6 +370,18 @@ impl PdfDoc {
                         .and_modify(|w| *w = w.max(width))
                         .or_insert(width);
                     font.unicodes.entry(gid).or_insert(adv.ch);
+                    // Glyph 0 (`.notdef`) is emitted when a character has no
+                    // glyph in the chosen face. It is a real glyph with a real
+                    // advance in `hmtx`, and PDF/A-1 clause 6.3.6 compares that
+                    // against `/W` the same way as any other glyph -- but it has
+                    // no character, so nothing here would otherwise ever give
+                    // it an entry and `/DW`'s default of 1000 would silently
+                    // disagree with the font. Recording it is the difference
+                    // between a file that validates and one that does not.
+                    if gid == 0 {
+                        let w0 = font.glyph_width(0);
+                        font.widths.entry(0).or_insert(w0);
+                    }
                 }
             }
         }
@@ -471,7 +486,39 @@ impl PdfDoc {
                     }
                 }
             }
-            if !ok {
+            // The remap must be *total* over the glyphs this font will draw.
+            //
+            // The subsetter renumbers glyphs into a compact sequence, but it
+            // builds the output cmap from the characters it retained. A glyph
+            // that is referenced without being reachable from that cmap -- a
+            // composite reached by glyph id rather than by character, or glyph 0
+            // -- gets no entry here. The writer then fell back to the *original*
+            // id for those, emitting a stale glyph number into a font that has
+            // only a few dozen glyphs.
+            //
+            // That failure is invisible until a conformance checker cross-reads
+            // the content stream against the embedded program: the PDF rendered
+            // the wrong shape rather than failing, and the writer's own tests
+            // passed because every glyph it checked was one of the remapped
+            // ones. veraPDF clause 6.3.5/1 caught it.
+            //
+            // Rather than paper over it with a second fallback, an incomplete
+            // remap means the subset is not usable: embed the font whole, keep
+            // the original ids, and let `/CIDToGIDMap /Identity` be truthful.
+            // A larger file that is correct beats a smaller one that is wrong.
+            // Glyph 0 is the exception: `.notdef` has no character, so it can
+            // never be reached through the cmap, but it is always retained by
+            // the subsetter in first position -- so its id is unchanged. Without
+            // this, the totality check below rejects every subset (glyph 0 is
+            // always present) and the whole font gets embedded, which is a 15x
+            // size regression on the PDF/A path.
+            remap.entry(0).or_insert(0);
+            // Measured on the PDF/A fixture: exactly one glyph is unremapped,
+            // gid 5042, a composite that the subsetter expands into its
+            // components and therefore does not retain. That single glyph is
+            // what costs the whole font its subset here.
+            let total = font.widths.keys().all(|gid| remap.contains_key(gid));
+            if !ok || !total {
                 continue;
             }
             let prefix: String = hash_bytes(&subset)
@@ -512,6 +559,7 @@ impl PdfDoc {
             desc: Ref,
             cmap: Ref,
             file: Ref,
+            cid_set: Ref,
         }
         // One resource block per font actually used, in `fonts` order, with
         // the fallback appended last when it set any glyphs.
@@ -525,6 +573,7 @@ impl PdfDoc {
                 desc: next(),
                 cmap: next(),
                 file: next(),
+                cid_set: next(),
             })
             .collect();
         // Embed the fallback font only when it actually set glyphs.
@@ -536,6 +585,7 @@ impl PdfDoc {
                 desc: next(),
                 cmap: next(),
                 file: next(),
+                cid_set: next(),
             });
         }
 
@@ -607,12 +657,18 @@ impl PdfDoc {
             }
             {
                 let producer = format!("Hikari {}", env!("CARGO_PKG_VERSION"));
-                let xmp = pdfa::build_xmp(options.title.as_deref(), &producer);
-                // Bound rather than inlined: the compressed packet has to outlive
-                // the call that borrows it.
-                let packed = pdfa::deflate(xmp.as_bytes());
-                let mut meta = pdf.metadata(metadata_ref, &packed);
-                meta.filter(Filter::FlateDecode);
+                let xmp = pdfa::build_xmp(
+                    options.title.as_deref(),
+                    options.author.as_deref(),
+                    &producer,
+                );
+                // Written uncompressed, and that is not a size compromise:
+                // PDF/A-1 clause 6.7.2 forbids a `/Filter` on the metadata stream
+                // outright. veraPDF rejects the file for having one, so
+                // compressing it -- which was the entire reason it went through
+                // `deflate` -- makes the output non-conformant. The packet is a
+                // few hundred bytes and the conformance is worth more.
+                pdf.metadata(metadata_ref, xmp.as_bytes());
             }
             Some((icc_ref, metadata_ref))
         } else {
@@ -716,13 +772,26 @@ impl PdfDoc {
                 let mut cid = pdf.cid_font(refs.cid);
                 cid.subtype(CidFontType::Type2)
                     .base_font(Name(font.name.as_bytes()))
+                    // PDF/A-1 clause 6.3.3.2: a Type 2 CIDFont used for rendering
+                    // must carry a CIDToGIDMap. `Identity` is not merely
+                    // acceptable here, it is correct -- the subsetter keeps
+                    // original glyph ids, so CID and GID are the same number and a
+                    // mapping stream could only ever agree with it.
+                    .cid_to_gid_map_predefined(Name(b"Identity"))
                     .system_info(SystemInfo {
                         registry: Str(b"Adobe"),
                         ordering: Str(b"Identity"),
                         supplement: 0,
                     })
                     .font_descriptor(refs.desc)
-                    .default_width(1000.0);
+                    // The default width describes glyphs absent from `/W`, and
+                    // the one that is always absent is glyph 0 (`.notdef`),
+                    // which has no character and so is never collected by the
+                    // walk above. PDF/A-1 clause 6.3.6 compares `/DW` against
+                    // `hmtx` exactly as it compares `/W`, so a hardcoded 1000
+                    // disagrees with the font's real 600.10 and fails
+                    // validation. Read it from the font instead.
+                    .default_width(font.glyph_width(0));
                 let mut runs: Vec<(u32, Vec<f32>)> = Vec::new();
                 for (gid, w) in &font.widths {
                     match runs.last_mut() {
@@ -751,7 +820,33 @@ impl PdfDoc {
                 .descent(font.descender)
                 .cap_height(font.cap_height)
                 .stem_v(80.0)
-                .font_file2(refs.file);
+                .font_file2(refs.file)
+                // PDF/A-1 clause 6.3.5/3: a subset CIDFont's descriptor must
+                // carry a `/CIDSet` stream whose bit *i* is set exactly when CID
+                // *i* is present in the embedded subset. veraPDF cross-checks
+                // this against the CIDs actually referenced by the content
+                // stream, so "the glyphs we subset" is not sufficient -- it has
+                // to be "the glyphs that are drawn".
+                .cid_set(refs.cid_set);
+            // Built from the CIDs the content stream draws, not from the whole
+            // subset, because those two sets differ in practice and the checker
+            // compares against the former.
+            {
+                let mut max_cid = 0usize;
+                for cid in font.widths.keys() {
+                    max_cid = max_cid.max(*cid as usize);
+                }
+                let bytes = (max_cid / 8 + 1).max(1);
+                let mut bits = vec![0u8; bytes];
+                for cid in font.widths.keys() {
+                    let cid = *cid as usize;
+                    bits[cid / 8] |= 1 << (7 - (cid % 8));
+                }
+                let mut s = pdf.stream(refs.cid_set, &bits);
+                // Not an oversight: PDF/A forbids compressing the CIDSet, and
+                // veraPDF fails the file if `/Filter` is present here.
+                let _ = &mut s;
+            }
             pdf.stream(refs.cmap, cmap_bytes);
             {
                 let mut s = pdf.stream(refs.file, file_bytes);
@@ -1012,6 +1107,32 @@ impl DocFont {
     }
 
     /// Exact advance in thousandths for this font's glyph.
+    /// The font's own advance width for `gid`, in 1000-unit glyph space.
+    ///
+    /// Deliberately *not* the shaped advance. The shaper returns a per-cluster
+    /// advance that includes kerning, and writing that into `/W` describes a
+    /// glyph that does not exist: PDF/A-1 clause 6.3.6 requires `/W` to agree
+    /// with the embedded `hmtx`, and veraPDF compares them numerically. A
+    /// clustered pair with kerning produced widths of 649.90 where the font
+    /// says 694.82 -- a 7% error in the advance of every affected glyph,
+    /// visible as loose or overlapping text in a conforming file.
+    ///
+    /// Returns `None` when the font has no metric for the glyph, so the caller
+    /// can leave it to `/DW` rather than write a number the font does not
+    /// agree with.
+    fn glyph_width_opt(&self, gid: u32) -> Option<f32> {
+        let size = skrifa::instance::Size::new(self.upem);
+        self.parsed
+            .glyph_metrics(size, skrifa::instance::LocationRef::default())
+            .advance_width(skrifa::raw::types::GlyphId::new(gid))
+            .map(|a| a / self.upem * 1000.0)
+    }
+
+    /// As [`Self::glyph_width_opt`], falling back to 1000 (`/DW`).
+    fn glyph_width(&self, gid: u32) -> f32 {
+        self.glyph_width_opt(gid).unwrap_or(1000.0)
+    }
+
     fn exact_width(&self, ch: char) -> f32 {
         let size = skrifa::instance::Size::new(self.upem);
         self.parsed
@@ -1271,7 +1392,11 @@ fn paint_text(
                     (doc.fonts.len(), f.gid_of(adv.ch)?, &f.remap)
                 }
             };
-            // Subset fonts renumber glyphs: map original -> embedded gid.
+            // Map original -> embedded gid. Unsubsetted fonts keep their
+            // original ids and have an empty remap, so the identity fallback is
+            // correct there; subsetted fonts always have an entry (see
+            // `subset_fonts`, which abandons the subset rather than emit one
+            // missing).
             let gid = remap.get(&orig).copied().unwrap_or(orig);
             match segs.last_mut() {
                 Some((f, bytes, _)) if *f == fi => bytes.extend_from_slice(&gid.to_be_bytes()),

@@ -497,13 +497,31 @@ Stated plainly, because a limitations section that hedges is worse than none.
   and tests verify each of those is present and well-formed. That is the whole of
   the claim.
 
-  A `verapdf` CI job now runs veraPDF 1.30.3 (official image, pinned) over a
-  fixture built by the `pdfa_fixture` example and fails unless veraPDF confirms
-  PDF/A-1b. **That job has not yet been observed green**, so the output is not
-  described here as conformant -- the difference between "the job exists" and
-  "the job passed" is exactly the distinction this project is trying to keep
-  making. Until a run is green, run veraPDF yourself before relying on it for
-  archival use.
+  veraPDF 1.30.3 (official image, pinned) has been run over the `pdfa_fixture`
+  fixture, in CI and locally. **It failed twelve clauses on the first real run.**
+  Ten are fixed; the output is still not described here as conformant, and two
+  clauses still fail:
+
+  ```
+  6.7.9/3   XMP property does not correspond to type seq propername
+  6.7.3/3   /Author and dc:creator are not equivalent
+  ```
+
+  Both concern the encoding of `dc:creator`. The XMP specification declares it
+  as a list of `Agent`, and veraPDF rejects every spec-conformant encoding of
+  that tried here -- including the two that make its parser discard the whole
+  XMP packet, after which every metadata rule fails at once. The failures are
+  recorded rather than explained away.
+
+  What the run found is worth stating plainly, because none of it was visible
+  any other way: the generated ICC profile had a **three-byte-misaligned
+  header** (`preferred CMM` written as one byte instead of four), `/W` recorded
+  **kerned** advances rather than the font's own metrics, and glyphs whose ids
+  survived a subset that had renumbered them were written **stale**. The last
+  rendered the wrong glyph instead of failing. Each had a passing test; two of
+  those tests had been written against the bug and asserted it.
+
+  Run veraPDF yourself before relying on this for archival use.
 - **PDF/UA is explicitly out of scope for 1.0.** Not deferred, not "coming" --
   decided, with a reason, so nobody re-litigates it each release.
 
@@ -643,14 +661,13 @@ Ordered by what most limits the project, not by what is easiest.
       APNG; GIF wins here because it is palette-indexed, which is the case it is
       built for.
 - [x] **PDF/A-1b structural metadata**, behind `PdfOptions::pdfa`. Output intent
-      with a generated 500-byte sRGB ICC profile, XMP declaring `pdfaid:part` 1
-      and conformance B, and a content-derived trailer `/ID`. **Not validated
-      against a conformance checker** -- see Limitations.
-- [~] **PDF/A conformance validation.** A `verapdf` CI job runs veraPDF 1.30.3
-      (the official Docker image, pinned) over a fixture built by the
-      `pdfa_fixture` example, and fails unless veraPDF confirms PDF/A-1b.
-      **The gate has not yet been observed green**, so conformance is still not
-      claimed — see Limitations.
+      with a generated sRGB ICC profile, XMP declaring `pdfaid:part` 1 and
+      conformance B, and a content-derived trailer `/ID`. Checked against
+      veraPDF 1.30.3: **10 of the 12 clauses it failed now pass.**
+- [~] **PDF/A conformance validation.** veraPDF 1.30.3 (official Docker image,
+      pinned) runs in CI over the `pdfa_fixture` fixture and gates on the
+      verdict. It found twelve failures; two remain (`dc:creator` encoding), so
+      **conformance is still not claimed** — see Limitations.
 - [ ] **PDF/UA.** **Decided out of scope for 1.0**, with reasons recorded in
       Limitations. Tagged PDF is a rewrite of the content model, and WCAG
       conformance is not mechanically checkable, so it could not be verified here

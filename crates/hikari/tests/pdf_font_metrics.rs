@@ -68,16 +68,23 @@ fn descriptor(pdf: &str, key: &str) -> String {
 
 #[test]
 fn glyph_widths_are_exact_and_pinned() {
-    // These are the measured advances for the embedded DejaVu Sans subset at
-    // 1000 units/em. A wrong width here does not look wrong: the text still
-    // renders, it is just spaced slightly off, which no digest catches and no
-    // ink count notices.
+    // These are the embedded DejaVu Sans `hmtx` advances at 1000 units/em. A
+    // wrong width here does not look wrong: the text still renders, it is just
+    // spaced slightly off, which no digest catches and no ink count notices.
+    //
+    // Gids 36 and 78 changed when the writer stopped recording the *shaped*
+    // advance and started recording the font's own. The shaped advance carries
+    // kerning, so those two glyphs were written as 620.12 and 561.52 when the
+    // font says 684.08 and 579.10 -- describing glyphs that do not exist.
+    // PDF/A-1 clause 6.3.6 requires `/W` to agree with the embedded program and
+    // veraPDF compares them numerically, so this was a conformance failure as
+    // well as a spacing one.
     let pdf = pdf_for("Hikari AVfi 0123");
     assert_eq!(
         widths(&pdf),
         "/W [3 [317.8711] 19 [636.23047 636.23047 636.23047 636.23047] \
-         36 [620.1172] 43 [751.9531] 57 [684.08203] 68 [612.79297] \
-         76 [277.83203] 78 [561.52344] 85 [411.1328] 5042 [629.8828]]",
+         36 [684.08203] 43 [751.9531] 57 [684.08203] 68 [612.79297] \
+         76 [277.83203] 78 [579.10156] 85 [411.1328] 5042 [629.8828]]",
         "glyph advance widths changed; characters would mis-space"
     );
 }

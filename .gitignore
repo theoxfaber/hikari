@@ -28,3 +28,6 @@ motion.gif
 # `scripts/fetch-bundled-fonts.sh` instead of carried in git. The 112 KB Hebrew
 # face is committed, so a default build needs nothing.
 crates/hikari-core/assets/fonts/NotoSansSC.ttf
+
+# Built by the PDF/A conformance fixture; regenerated in CI before veraPDF runs.
+pdfa-fixture.pdf

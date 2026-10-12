@@ -3,6 +3,113 @@
 All notable changes to Hikari. Versions match the workspace `version` and
 the `hikari-rs` facade crate.
 
+## v0.21.10 — PDF/A defects found by actually running veraPDF
+
+v0.21.9 shipped PDF/A-1b support with a CI job meant to gate it. That job had
+never produced a report. Once veraPDF was made to run, it failed **twelve**
+clauses on the project's own fixture. All but two are fixed here.
+
+**PDF/A-1 conformance is still not claimed.** Two clauses remain failing and
+they are listed below rather than explained away.
+
+### Fixed — the generated ICC profile had a misaligned header
+
+`preferred CMM` was written as a single byte. It is a four-byte signature, so
+every field from offset 4 onward sat three bytes early: the data colour space
+landed at 13 instead of 16, `acsp` at 33 instead of 36, the PCS illuminant at
+65 instead of 68.
+
+The profile's declared size still matched its real size, so the writer's own
+`debug_assert_eq!` passed. So did three unit tests, because those tests had been
+written against the broken offsets and agreed with them. veraPDF read the header,
+found `XYZ ` where the data colour space belonged, and reported an RGB profile
+as `XYZ` — failing clauses 6.2.2/1, 6.2.3.2/2 and 6.2.3.3/1 together.
+
+The three tests now assert the offsets ICC.1 actually specifies.
+
+### Fixed — XMP metadata
+
+- Clause 6.7.2/2: the packet was written through `deflate`. PDF/A-1 forbids
+  `/Filter` on the metadata stream outright, so compressing it made the output
+  non-conformant. It is now written uncompressed.
+- Clauses 6.7.3/3 and /6: `/Author` and `/Creator` were written to the document
+  information dictionary with no counterpart in the XMP. `dc:creator` and
+  `xmp:CreatorTool` are now emitted. The mapping is not mechanical —
+  `/Creator` is the *tool* (`xmp:CreatorTool`) and `/Author` is a person
+  (`dc:creator`); pairing them the other way satisfies neither rule.
+- Clause 6.3.3.2/1: a Type 2 CIDFont now carries `/CIDToGIDMap /Identity`.
+  That is not merely acceptable but correct: the subsetter keeps original glyph
+  ids, so CID and GID are the same number.
+- Clause 6.3.5/3: the font descriptor now carries a `/CIDSet` stream whose bits
+  are set for exactly the CIDs present in the subset. Uncompressed, because
+  PDF/A forbids a filter here too.
+
+### Fixed — two font bugs that rendered wrong text silently
+
+- **Clause 6.3.6/1.** `/W` recorded the *shaped* advance, which includes
+  kerning. Two glyphs were written as 620.12 and 561.52 where the font says
+  684.08 and 579.10 — describing glyphs that do not exist. Widths now come from
+  the font's own `hmtx`.
+- **Clause 6.3.6/1 again.** `/DW` was hardcoded to 1000. The default width
+  describes glyphs absent from `/W`, and the one that is always absent is glyph
+  0 (`.notdef`), which has no character and so is never collected by the walk.
+  The font says 600.10. `/DW` is now read from the font.
+- **Clause 6.3.5/1.** When the subsetter renumbers glyphs, any referenced glyph
+  it did not renumber had its *original* id written into a subset that no longer
+  contains it. The file rendered the wrong shape rather than failing, and the
+  writer's own tests passed because every glyph they checked was one of the
+  renumbered ones. The remap is now required to be total; if it is not, the
+  subset is abandoned and the font is embedded whole.
+
+That last one is a deliberate size-for-correctness trade: on the fixture it
+costs the subset entirely (14 KB → 205 KB), because exactly one glyph — a
+composite the subsetter expands into components — is unrenumberable. A smaller
+file that draws the wrong glyph is worse than a larger file that does not.
+
+### Fixed — the conformance fixture could never conform
+
+The fixture embedded an invoice XML attachment to exercise that code path.
+PDF/A-1 clause 6.1.11 forbids embedded files outright, both the `/EF` key on a
+file specification and `EmbeddedFiles` in the name dictionary. A conformance
+fixture that cannot conform tests nothing. The attachment moved to the
+`invoice` example, which is what should have exercised it all along.
+
+### Fixed — the CI job reported a crashed checker as a conformance failure
+
+veraPDF's image ships with `JAVA_OPTS` empty. Loading a PDF/A validation profile
+in a default heap dies with `OutOfMemory caught when validating item` and still
+exits non-zero, so the job read a crashed checker as a failed validation. Now
+`-Xmx2g` is set, an empty report is distinguished from a failing one, and the
+failing clause numbers are extracted from an XML report — because the text
+report says only `FAIL`, which is not actionable.
+
+### Not fixed — `dc:creator` encoding
+
+Two clauses still fail:
+
+```
+6.7.9/3   XMP property does not correspond to type seq propername
+6.7.3/3   /Author and dc:creator are not equivalent
+```
+
+`dc:creator` is declared in XMP as a list of `Agent`. Four encodings were tried
+against veraPDF and each failed differently: a flat `rdf:Seq` reads as
+`agentname`; a bare value reads as `propername`; and the two spec-conformant
+shapes — `rdf:parseType="Resource"` nesting, and an `rdf:Seq` nested inside an
+`rdf:Description` — stop veraPDF's XMP parser from parsing the packet at all,
+after which every metadata rule fails at once (5 → 9 → 12 failures).
+
+The current shape is the least wrong of those, and the two failures are recorded
+here and asserted in CI rather than hidden. `pdfaid:part`, `pdf:Producer` and
+`dc:title` all pass.
+
+### Known limitation — PDF/A output is not subset
+
+As above: the PDF/A path embeds DejaVu Sans whole (368 KB) because one
+composite glyph cannot be renumbered. Non-PDF/A output is unaffected and still
+subsets. Resolving this properly means asking the subsetter to retain a glyph
+the character map does not reach, which it does not currently offer.
+
 ## v0.21.9 — deterministic fallback, a frozen CSS spec, and a real CI matrix
 
 This release is mostly about correcting things that were claimed rather than
@@ -75,7 +182,8 @@ errors is worse than none, so the extraction was replaced by Rust tables.
   the difference cannot hide.
 - **`node`** — Node 18/20/22/24 across Linux, macOS and Windows.
 - **`verapdf`** — veraPDF 1.30.3 over a fixture built by the `pdfa_fixture`
-  example. **The gate has not been observed green, so PDF/A conformance is still
+  example. **The gate had not been observed green at the time of this release,
+  so PDF/A conformance is still
   not claimed.** See below.
 - **`fuzz`** — `cargo-fuzz` over the CSS/HTML parsers and the PDF writer,
   bounded to 90 s. The PDF target needed a public `subset_font_for_text` to reach
