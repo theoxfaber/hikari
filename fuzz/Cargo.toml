@@ -37,8 +37,10 @@ doc = false
 [dependencies]
 libfuzzer-sys = "0.4"
 
-[dependencies.hikari-rs]
-path = "../crates/hikari"
+# `hikari-rs` is deliberately absent. Both targets drive `hikari-rs-core` and
+# `hikari-rs-pdf` directly, because that is where the parsers are: fuzzing the
+# facade would spend most of its budget in argument marshalling. Cargo flags the
+# unused dependency, which is correct.
 
 [dependencies.hikari-rs-core]
 path = "../crates/hikari-core"

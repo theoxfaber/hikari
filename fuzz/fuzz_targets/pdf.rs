@@ -25,9 +25,10 @@
 
 use libfuzzer_sys::fuzz_target;
 
-/// Split between the two fuzzed surfaces.
+/// Selects the font surface. Anything else routes to the writer, on purpose:
+/// the selector is an arbitrary fuzz byte, so discarding unrecognised values
+/// would throw away most of the corpus' writer coverage for nothing.
 const FONT: u8 = 0;
-const TREE: u8 = 1;
 
 fuzz_target!(|data: &[u8]| {
     let Some((selector, payload)) = data.split_first() else {

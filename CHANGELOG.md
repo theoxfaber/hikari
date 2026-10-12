@@ -189,6 +189,24 @@ nobody thought to list.
 
 After both fixes: 484,052 CSS runs and 26,142 PDF runs, no crash.
 
+### Fixed — the fuzz jobs compiled with `-D warnings` and one did not
+
+`fuzz (pdf)` failed with `constant TREE is never used`. The selector byte picks
+between the font surface and the writer, and `TREE` was declared as the writer's
+value but the arm was a catch-all `_`, so nothing referenced it.
+
+Neither fuzzing run noticed, because `cargo fuzz run` does not pass CI's
+`-D warnings`. The difference between "the job is red" and "this crate cannot
+compile under the flags the job uses" was invisible until someone read the log
+instead of the icon. The README now carries the one-line command that checks it
+locally, because the fuzz crate is not in the workspace and `cargo clippy
+--workspace` will never see it.
+
+Also dropped the `hikari-rs` dependency, which both targets do not use — they
+drive `hikari-rs-core` and `hikari-rs-pdf` directly, since that is where the
+parsers are and fuzzing the facade would spend its budget in argument
+marshalling.
+
 ### Fixed — a per-thread font shaper leaked on every thread
 
 With the fuzz targets building, LeakSanitizer reported 1040 bytes leaked in two

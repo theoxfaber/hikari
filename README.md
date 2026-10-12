@@ -726,10 +726,15 @@ benchmarks and supply chain.
 ## Development
 
 ```sh
-cargo test --workspace --exclude hikari-rs-node   # 320 tests
+cargo test --workspace --exclude hikari-rs-node   # 322 tests
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check
 cargo deny check
+
+# The fuzz crate is not in the workspace, so `cargo clippy --workspace` never
+# sees it. CI compiles it with `-D warnings` and denied an unused constant the
+# local fuzzing runs had been carrying for weeks.
+RUSTFLAGS="-D warnings" cargo +nightly build --manifest-path fuzz/Cargo.toml --release
 ```
 
 ### Reproducing the PDF/A check locally
