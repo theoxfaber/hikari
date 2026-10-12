@@ -7,12 +7,32 @@ edition = "2021"
 [package.metadata]
 cargo-fuzz = true
 
-# `cargo check` on this manifest needs *something* to look at, and the real
-# targets are `fuzz_targets/*.rs`, which `cargo-fuzz` compiles with the
-# sanitizer flags rather than as ordinary binaries. An empty lib is what
-# cargo-fuzz's own template ships, for exactly this reason.
+# `cargo check` on this manifest needs *something* to look at, and an empty
+# lib is what cargo-fuzz's own template ships, for that reason.
 [lib]
 path = "src/lib.rs"
+
+# The targets themselves must be declared as bins. `cargo fuzz run css` resolves
+# `css` as a *bin target of this package* and does not scan `fuzz_targets/` on
+# its own, so without these entries the job dies with
+#
+#     error: no bin target named `css` in default-run packages
+#
+# which is what both fuzz jobs did on every run they had ever executed.
+#
+# `test`/`doc` are off because these binaries link libFuzzer's `main`, which is
+# not something a test or doc harness should pull in.
+[[bin]]
+name = "css"
+path = "fuzz_targets/css.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "pdf"
+path = "fuzz_targets/pdf.rs"
+test = false
+doc = false
 
 [dependencies]
 libfuzzer-sys = "0.4"

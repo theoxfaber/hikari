@@ -31,3 +31,11 @@ crates/hikari-core/assets/fonts/NotoSansSC.ttf
 
 # Built by the PDF/A conformance fixture; regenerated in CI before veraPDF runs.
 pdfa-fixture.pdf
+
+# cargo-fuzz working directories. `corpus/` grows without bound and is derived;
+# `artifacts/` collects crashes. A crash is promoted into a real unit test with
+# the exact bytes inline rather than left as a binary file -- the CSS tag-scanner
+# panic found by the fuzzer is pinned in `crates/hikari-core/src/css_tests.rs`.
+fuzz/corpus/
+fuzz/artifacts/
+fuzz/target/

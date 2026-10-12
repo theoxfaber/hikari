@@ -698,6 +698,12 @@ Ordered by what most limits the project, not by what is easiest.
       Limitations. Tagged PDF is a rewrite of the content model, and WCAG
       conformance is not mechanically checkable, so it could not be verified here
       even if it were built.
+- [x] **Fuzz targets that actually fuzz.** `fuzz/` declares its `[[bin]]`
+      targets, which it had not: `cargo fuzz` resolves a target as a bin of the
+      fuzz package rather than scanning `fuzz_targets/`, so both jobs had been
+      failing to build — which in a job list is indistinguishable from a fuzzer
+      that found nothing. On first real run it found a slice-index panic in the
+      HTML tag scanner. 794,576 CSS and 33,010 PDF runs clean after the fix.
 - [x] **A frozen CSS spec with a conformance suite.**
       `docs/css-spec.json` is generated from the tables in
       `crates/hikari-core/src/spec.rs`, and `spec::conformance` asserts every
@@ -720,7 +726,7 @@ benchmarks and supply chain.
 ## Development
 
 ```sh
-cargo test --workspace --exclude hikari-rs-node   # 318 tests
+cargo test --workspace --exclude hikari-rs-node   # 320 tests
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check
 cargo deny check
@@ -772,6 +778,14 @@ previous ones:
 | `node bindings` | native binding and package metadata regressions |
 | `PDF/A conformance` | output that a checker rejects — see below |
 | `fuzz (css, pdf)` | parser crashes and hangs on untrusted bytes |
+
+The fuzz jobs are the newest of these and the least trustworthy by default: for
+two releases both were failing to *build* (`no bin target named 'css'`), which
+in a job list reads much like a fuzzer that simply found nothing. When they
+were finally made to run, they found a slice-index panic in the HTML tag
+scanner within seconds — on input like `< R R E \x7f =`, which no hand-written
+malformed-tag test in this crate reached, because they all used well-formed
+attribute values.
 
 The `PDF/A conformance` job is the one that has already earned its place. It sat
 in CI failing for two releases before anyone noticed why, and the reason was not

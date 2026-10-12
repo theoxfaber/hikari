@@ -443,6 +443,64 @@ fn unclosed_tags_do_not_lose_content() {
 }
 
 #[test]
+fn an_attribute_ending_in_equals_does_not_panic() {
+    // Regression, found by the `css` fuzz target rather than written by hand:
+    // `< R R E \x7f =` panicked with "range start index 9 out of range for
+    // slice of length 8".
+    //
+    // The scanner read the `=` with nothing after it and defaulted the quote
+    // character to `"`, so it took the quoted-value branch, ran `i` off the end
+    // of the input, and then sliced. Every other malformed-tag test in this file
+    // used well-formed attribute values, so none of them reached it -- a tag
+    // scanner's whole job is surviving input that is not like that.
+    //
+    // The exact bytes are kept rather than a tidied-up equivalent, because the
+    // point is the byte at which the input runs out, not the shape of the tag.
+    let html = "< R R E \u{7f} =";
+    let _ = css::parse_html(html);
+    // The variants around it, since the fix was about *which* branch runs at
+    // end-of-input rather than about this one string.
+    let variants = [
+        r"<a href=>",
+        r"<a class=>",
+        r"<a id=>",
+        r"<a style=>",
+        r#"<a href="unterminated"#,
+        r"<a href='unterminated",
+        r#"<a href="""#,
+        r#"<a href=""#,
+        r"<a b==>",
+        r#"<a href="\""#,
+        r"<a =",
+        r"<a",
+    ];
+    for html in variants {
+        let _ = css::parse_html(html);
+    }
+}
+
+#[test]
+fn an_empty_attribute_value_is_empty_not_a_quote() {
+    // The behaviour the fix settles, checked through the parser rather than
+    // only through "does not panic": `href=` with nothing after it is an empty
+    // value. Treating it as an unterminated quoted string would swallow the
+    // rest of the document as the attribute's value.
+    let roots = css::parse_html("<a href=>text</a>");
+    let text: String = roots.iter().flat_map(text_of).collect::<String>();
+    assert!(
+        text.contains("text"),
+        "content after an empty attribute must survive, got {text:?}"
+    );
+}
+
+fn text_of(n: &css::Element) -> Vec<String> {
+    if let Some(t) = &n.text {
+        return vec![t.clone()];
+    }
+    n.children.iter().flat_map(text_of).collect()
+}
+
+#[test]
 fn href_becomes_a_pdf_link() {
     let html = r#"<div><a href="https://example.com">click</a></div>"#;
     let mut report = ParseReport::default();

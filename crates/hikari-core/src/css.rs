@@ -2074,21 +2074,40 @@ pub fn parse_html(html: &str) -> Vec<Element> {
                 while i < chars.len() && chars[i].is_whitespace() {
                     i += 1;
                 }
-                let q = chars.get(i).copied().unwrap_or('"');
-                if q == '"' || q == '\'' {
-                    i += 1;
-                    let vstart = i;
-                    while i < chars.len() && chars[i] != q {
+                // Matched, not defaulted. The `unwrap_or('"')` that used to be
+                // here invented a quote character whenever `=` was the last
+                // thing in the tag, took the quoted branch, and advanced `i`
+                // past the end -- `chars[9..8]` on an eight-byte input. The
+                // `css` fuzz target found it in seconds; it is unreachable by
+                // any structured input because it needs a *malformed* tag, and
+                // that is exactly the class of input a tag scanner exists to
+                // survive.
+                match chars.get(i).copied() {
+                    Some(q @ ('"' | '\'')) => {
                         i += 1;
+                        let vstart = i;
+                        while i < chars.len() && chars[i] != q {
+                            i += 1;
+                        }
+                        value = chars[vstart..i].iter().collect::<String>();
+                        // Only step over the terminator if there is one. An
+                        // unterminated value leaves `i == chars.len()`, and
+                        // incrementing regardless is how the index went out of
+                        // range in the first place.
+                        if i < chars.len() {
+                            i += 1;
+                        }
                     }
-                    value = chars[vstart..i].iter().collect::<String>();
-                    i += 1;
-                } else {
-                    let vstart = i;
-                    while i < chars.len() && !chars[i].is_whitespace() && chars[i] != '>' {
-                        i += 1;
+                    Some(_) => {
+                        let vstart = i;
+                        while i < chars.len() && !chars[i].is_whitespace() && chars[i] != '>' {
+                            i += 1;
+                        }
+                        value = chars[vstart..i].iter().collect::<String>();
                     }
-                    value = chars[vstart..i].iter().collect::<String>();
+                    // `attr=` with nothing after it: an empty value, not a
+                    // quote. `i` stays where it is.
+                    None => {}
                 }
             }
             match attr.as_str() {

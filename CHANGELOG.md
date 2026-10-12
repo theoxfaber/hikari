@@ -121,6 +121,52 @@ subset entirely (14 KB → 205 KB), because exactly one glyph — a composite th
 subsetter expands into components — is unrenumberable. A smaller file drawing
 the wrong glyph is worse than a larger one that does not.
 
+### Fixed — the fuzz jobs had never run, and then found a crash
+
+`fuzz/Cargo.toml` declared no `[[bin]]` targets. `cargo fuzz run css` resolves
+`css` as a bin target of the fuzz package and does not scan `fuzz_targets/` on
+its own, so both fuzz jobs died immediately with:
+
+```
+error: no bin target named `css` in default-run packages
+```
+
+That is a build failure, not a validation failure, so it reads as "the fuzzer
+found nothing" unless you read the log. The crate's lockfile was still pinned
+at v0.21.8 while the workspace was at v0.21.9, which is the same evidence from a
+different angle: the manifest had never been resolved since it was written.
+
+With the targets declared, the fuzzer ran for the first time and found a real
+bug within seconds.
+
+### Fixed — a slice-index panic in the HTML tag scanner
+
+Input `< R R E \x7f =` panicked:
+
+```
+thread panicked at crates/hikari-core/src/css.rs:
+range start index 9 out of range for slice of length 8
+```
+
+The attribute scanner read the trailing `=` and defaulted the quote character to
+`"` via `chars.get(i).copied().unwrap_or('"')`. With nothing after the `=`, that
+fabricated a quote it then took the quoted-value branch on, advancing `i` past
+the end of the input before slicing it.
+
+Fixed by matching the character instead of defaulting it, and by stepping over
+the closing quote only when there is one — an unterminated value leaves the
+index at the end of the input, and incrementing unconditionally is what put it
+out of range in the first place.
+
+Every other malformed-tag test in this crate used a well-formed attribute
+value, so none of them reached it. A tag scanner's job is surviving input that
+is not like that, which is precisely the gap a fuzzer closes and a test suite
+written alongside the parser does not.
+
+The regression is pinned by a unit test carrying the exact bytes, plus the
+twelve neighbouring shapes at end-of-input. After the fix: 794,576 CSS runs and
+33,010 PDF runs, no crash.
+
 ### Fixed — the fixture could never conform
 
 The fixture embedded an invoice XML attachment to exercise that code path.
