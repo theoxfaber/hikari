@@ -390,26 +390,52 @@ pub fn font_covering(ch: char) -> Option<FontId> {
 ///
 /// The cost of a miss is one `ShaperFont::new`, so a thread that renders only
 /// once per font pays the same as before and keeps a little memory.
-pub(crate) fn shaper_for(id: FontId) -> &'static harfrust::ShaperFont<'static, 'static> {
+/// Runs `f` with this thread's cached shaper for `id`.
+///
+/// The cache is what makes this worth having: `ShaperFont::new` re-resolves the
+/// layout tables, which measured as ~16% of the render benchmark when rebuilt
+/// per shaped run. It is also deliberately *not* in the font registry, because
+/// `ShaperFont` holds interior memoisation that is neither `Sync` nor useful
+/// across calls.
+///
+/// The callback shape is load-bearing. This used to return
+/// `&'static ShaperFont`, which could only be satisfied by `Box::leak`ing each
+/// one — and a `thread_local!` holding leaked pointers frees none of them, so
+/// every thread that ever shaped text leaked one `ShaperFont` per font, forever.
+/// That is a bounded leak, which is the worst kind to ship: small enough that
+/// nothing notices and large enough that a leak checker flags it every run. The
+/// `css` fuzz target is what noticed, via LeakSanitizer.
+///
+/// Handing the shaper to a closure instead lets it be stored by value and
+/// dropped when the thread exits, with no `&'static` and no `unsafe`. The
+/// workspace forbids `unsafe_code`, which is why the leak was there in the first
+/// place: every trick for handing out a stable reference into a growable
+/// thread-local needs one.
+pub(crate) fn with_shaper<R>(
+    id: FontId,
+    f: impl FnOnce(&harfrust::ShaperFont<'static, 'static>) -> R,
+) -> R {
     use std::cell::RefCell;
 
     // One shaper per (thread, font). A small vec rather than a map: a render
     // touches a handful of fonts, and linear scan over two or three entries is
     // cheaper than hashing.
     thread_local! {
-        static SHAPERS: RefCell<Vec<(FontId, &'static harfrust::ShaperFont<'static, 'static>)>> =
+        static SHAPERS: RefCell<Vec<(FontId, harfrust::ShaperFont<'static, 'static>)>> =
             const { RefCell::new(Vec::new()) };
     }
 
     SHAPERS.with(|cache| {
         let mut cache = cache.borrow_mut();
-        if let Some((_, shaper)) = cache.iter().find(|(cached, _)| *cached == id) {
-            return *shaper;
-        }
-        let shaper: &'static harfrust::ShaperFont<'static, 'static> =
-            Box::leak(Box::new(harfrust::ShaperFont::new(hb_face(id))));
-        cache.push((id, shaper));
-        shaper
+        let idx = match cache.iter().position(|(cached, _)| *cached == id) {
+            Some(idx) => idx,
+            None => {
+                cache.push((id, harfrust::ShaperFont::new(hb_face(id))));
+                cache.len() - 1
+            }
+        };
+        let (_, shaper) = &cache[idx];
+        f(shaper)
     })
 }
 

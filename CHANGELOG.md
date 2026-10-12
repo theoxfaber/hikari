@@ -167,6 +167,34 @@ The regression is pinned by a unit test carrying the exact bytes, plus the
 twelve neighbouring shapes at end-of-input. After the fix: 794,576 CSS runs and
 33,010 PDF runs, no crash.
 
+### Fixed — a per-thread font shaper leaked on every thread
+
+With the fuzz targets building, LeakSanitizer reported 1040 bytes leaked in two
+allocations on the first run of `fuzz (css)`.
+
+`shaper_for` returned `&'static ShaperFont` from a `thread_local!` cache, and
+the only way to produce a `&'static` into a thread-local without `unsafe` is to
+`Box::leak` it. A thread-local holding leaked pointers frees none of them, so
+every thread that ever shaped text leaked one `ShaperFont` per font, permanently.
+
+This is the worst shape a leak can take: bounded, so nothing in ordinary use
+notices, and small enough that only a leak checker sees it. `unsafe_code =
+"forbid"` workspace-wide is why it was written that way — every trick for
+handing out a stable reference into a growable thread-local needs `unsafe`.
+
+Replaced with `with_shaper`, which hands the shaper to a closure. It is stored by
+value in the thread-local and dropped when the thread exits; no `&'static`, no
+`unsafe`, and the cache still works — the layout tables it avoids re-resolving
+were measured at ~16% of the render benchmark.
+
+Benchmarks are unchanged by this (layout 3.94 µs, `paint_to_rgba` 1.821 ms,
+banner PNG 3.516 ms), which is the point: the performance argument for the cache
+and the leak were the same line of code, and only one of them was justified.
+
+LeakSanitizer does not run on the macOS development machine, which is why a
+794,576-run local session reported nothing. The leak was only ever observable
+on the Linux CI runner.
+
 ### Fixed — the fixture could never conform
 
 The fixture embedded an invoice XML attachment to exercise that code path.

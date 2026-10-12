@@ -410,44 +410,47 @@ fn shape_segment(run: &str, rtl: bool, px: f32, font: FontId) -> (Vec<PlacedAdva
     });
     // Cached per thread per font: `ShaperFont::new` re-resolves the layout
     // tables, which cost ~16% of the render benchmark when run per shaped run.
-    let shaper = crate::font::shaper_for(font);
-    harfrust::shape(shaper, &mut buf, ShapeOptions::default())
-        .expect("shaping a registered font never fails");
-    let infos = buf.glyph_infos();
-    let positions = buf.glyph_positions();
-    let mut total = 0.0;
-    let advances = infos
-        .iter()
-        .zip(positions.iter())
-        .map(|(info, pos)| {
-            let ch = char_at(info.cluster as usize);
-            // The glyph id must come from the shaper, not from a cmap lookup of
-            // `ch`. After GSUB the shaped glyph is frequently *not* the glyph
-            // the source character maps to: ligatures collapse several
-            // characters into one glyph, and Arabic letters are rewritten into
-            // contextual presentation forms. Re-deriving the id from `ch` threw
-            // that away, so the painter drew a blank or the wrong letterform.
-            let gid = info.glyph_id;
-            let missing = info.glyph_id == 0 && ch != '\0';
-            // Missing CJK ideographs are full-width in virtually every
-            // fallback font; measure 1em so layout agrees with paint.
-            let advance = if missing && is_wide(ch) {
-                px
-            } else {
-                pos.x_advance as f32 * scale
-            };
-            total += advance;
-            PlacedAdvance {
-                ch,
-                gid,
-                advance: advance.max(0.0),
-                x_offset: pos.x_offset as f32 * scale,
-                missing,
-                font,
-            }
-        })
-        .collect();
-    (advances, total.max(0.0))
+    // The callback form is what keeps that cache from leaking; see
+    // `font::with_shaper`.
+    crate::font::with_shaper(font, |shaper| {
+        harfrust::shape(shaper, &mut buf, ShapeOptions::default())
+            .expect("shaping a registered font never fails");
+        let infos = buf.glyph_infos();
+        let positions = buf.glyph_positions();
+        let mut total = 0.0;
+        let advances = infos
+            .iter()
+            .zip(positions.iter())
+            .map(|(info, pos)| {
+                let ch = char_at(info.cluster as usize);
+                // The glyph id must come from the shaper, not from a cmap lookup of
+                // `ch`. After GSUB the shaped glyph is frequently *not* the glyph
+                // the source character maps to: ligatures collapse several
+                // characters into one glyph, and Arabic letters are rewritten into
+                // contextual presentation forms. Re-deriving the id from `ch` threw
+                // that away, so the painter drew a blank or the wrong letterform.
+                let gid = info.glyph_id;
+                let missing = info.glyph_id == 0 && ch != '\0';
+                // Missing CJK ideographs are full-width in virtually every
+                // fallback font; measure 1em so layout agrees with paint.
+                let advance = if missing && is_wide(ch) {
+                    px
+                } else {
+                    pos.x_advance as f32 * scale
+                };
+                total += advance;
+                PlacedAdvance {
+                    ch,
+                    gid,
+                    advance: advance.max(0.0),
+                    x_offset: pos.x_offset as f32 * scale,
+                    missing,
+                    font,
+                }
+            })
+            .collect();
+        (advances, total.max(0.0))
+    })
 }
 
 /// True for scripts conventionally set full-width (CJK, Hangul, fullwidth).
