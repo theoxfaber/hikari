@@ -34,6 +34,30 @@ PNG encoding is therefore about 1.71 ms of the 3.53 ms — roughly half. Paint i
 about 1.82 ms and layout is under 4 µs, which is three orders of magnitude below
 the total and not worth optimising in isolation.
 
+### Encoding is half the cost, and SVG is not a rasteriser
+
+Measured on the same card, 1200x630, best of 20:
+
+| Output | Time | Size |
+|---|---|---|
+| raw RGBA (no encode) | 1.89 ms | — |
+| `render_svg` | **0.005 ms** | 309 B |
+| `render_png` | 3.89 ms | 12,196 B |
+| `render_webp` | 3.60 ms | 8,658 B |
+
+The gap between the first and third rows is the whole encode cost: **51% of
+`render_png` is zlib, not drawing.** Layout is 0.08 ms of it.
+
+SVG is 780x faster than PNG because it does not rasterise anything — it
+serialises. That is not a free lunch for everyone: a browser rasterises SVG for
+free on the GPU, and a server-side rasteriser pays the same cost this library
+avoided. It is the right output when the consumer can take vectors, and choosing
+it is the single largest performance decision available to a caller.
+
+`render_webp` is not a speed win here — 3.60 ms against PNG's 3.89 ms, inside the
+noise — but it is a 29% size win, and it is the better choice when the bytes
+cross a network.
+
 `banner` is a flat banner with one text run. `text_card` is three heading/body
 pairs on a light panel. They render in the same time to within about 1%, and
 their outputs differ (8,117 B vs 8,250 B, different digests). That is worth
@@ -276,9 +300,15 @@ not been measuring anything.
 
 - Cold start at 14.3 ms is dominated by first glyph rasterization. A
   smaller embedded font or a warmed glyph cache across processes would help.
-- `card.png` at 58 KB is larger than the encoder curve suggests it should be
-  for a mostly-flat image. Gradient banding is the suspected cause and is
-  unmeasured.
+- `card.png` at 58 KB looked too large for a mostly-flat image, and the note
+  guessed that gradient banding was the cause. **Measured, and the guess was
+  wrong.** The hero gradient is constant down every column (zero variation over
+  87 samples) and varies smoothly across, by at most 1 unit per 5 px. There is
+  no banding. Re-encoding the same pixels at maximum compression gives 55,776
+  bytes against the encoder's 57,931 — 3.7% of headroom, which is not a win
+  worth taking. The file is large because a full-canvas smooth gradient is
+  genuinely expensive to compress losslessly, and the encoder was never the
+  problem. Closed.
 - Benchmarks are single-machine and single-card. The golden corpus added in
   v0.20 covers features, not workloads: it says nothing about throughput on
   text-heavy, image-heavy or document-shaped trees.
