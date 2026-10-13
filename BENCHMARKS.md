@@ -54,9 +54,25 @@ free on the GPU, and a server-side rasteriser pays the same cost this library
 avoided. It is the right output when the consumer can take vectors, and choosing
 it is the single largest performance decision available to a caller.
 
-`render_webp` is not a speed win here — 3.60 ms against PNG's 3.89 ms, inside the
-noise — but it is a 29% size win, and it is the better choice when the bytes
-cross a network.
+`render_webp` is close in time but nowhere near the same in size — and which way
+it wins depends entirely on the content:
+
+| Workload | PNG | WebP | WebP advantage |
+|---|---|---|---|
+| flat card, text | 3.83 ms / 12,238 B | 3.50 ms / 8,662 B | **29% smaller** |
+| 12 image tiles | 11.36 ms / 28,858 B | 10.52 ms / 178,902 B | **6.2x larger** |
+
+The first version of this document said "29% size win" on the strength of the
+card alone, which is the same error as publishing a card-shaped performance
+claim in the first place. Lossless WebP wins on flat UI colour — flat fills,
+large uniform areas, few distinct values — and loses badly on photographic or
+high-frequency content, where PNG's predictive filters have far less to learn
+against. A gradient tile is the worst case for WebP here and the best case for
+PNG.
+
+So the guidance is not "use WebP for smaller files". It is: **there is no
+default that is right**, and the choice is worth a measurement on your own
+content rather than a rule copied from this table.
 
 `banner` is a flat banner with one text run. `text_card` is three heading/body
 pairs on a light panel. They render in the same time to within about 1%, and
@@ -140,6 +156,57 @@ Output size
 | `i18n.png` (multilingual) | 29,788 |
 | `card.png` (grid + image + rounded clip) | 57,931 |
 | Determinism reference card | 21,649 |
+
+## Workloads
+
+Everything above renders roughly one shape: a few text runs and flat rectangles
+on a card. That measures fill cost and says almost nothing about what people
+actually render. These three are chosen to stress *different* stages, and each
+reports the stages separately so the split can move between them.
+
+1200x630, criterion 95% CI, M2/macOS ARM64. `cargo bench -p hikari-rs --bench render`.
+
+| Workload | layout | paint_to_rgba | encode_png |
+|---|---|---|---|
+| `text_dense` — 40 sections, 80 runs | 0.751 ms | 4.238 ms | 5.221 ms |
+| `images` — 12 decoded PNGs | **0.013 ms** | 8.901 ms | 12.182 ms |
+| `document` — 150 rows | 0.442 ms | 2.536 ms | 3.624 ms |
+| *(banner, for contrast)* | *0.004 ms* | *1.821 ms* | *3.532 ms* |
+
+Reading the shares rather than the totals:
+
+- **Encode is 40–56% everywhere.** It is consistently the largest single item,
+  and it is not a constant.
+- **Layout is 0.4% on a card and 0.1% on an image card.** The "layout is three
+  orders of magnitude below the total, not worth optimising" line above is true
+  of cards and says nothing else.
+- **Layout scales with text, not area.** `document` has 150 nodes and costs
+  0.44 ms; `text_dense` has 80 runs and costs 0.75 ms.
+
+### What the image workload found
+
+Adding `images` to this suite immediately found a defect the other benchmarks
+could not see, because none of them contained an image.
+
+`image_dimensions` **fully decoded the image** to read its width and height. The
+header already contains them — two `u32`s at offset 16 in a PNG — so layout was
+decompressing every pixel of every image to learn how large it was, and the
+paint stage then decoded them all again.
+
+```
+images/layout       before  3.969 ms      after  0.013 ms     300x
+images/paint        before  13.845 ms     after  8.901 ms      1.6x
+```
+
+Paint improved too, because the image was being decoded twice and now is decoded
+once. Layout+paint for this workload went from 17.81 ms to 8.91 ms — **half the
+time**, from a one-line change.
+
+This is the argument for the workload benchmarks in one measurement: a suite
+that varies only the content of a card will never find this, because the bug is
+not about cards. The 300x figure was sitting in plain sight, unmeasured, for
+the entire life of the project, and the card benchmarks were not wrong — they
+were just not asking.
 
 ## Embedded font
 

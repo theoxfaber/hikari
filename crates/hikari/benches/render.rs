@@ -145,5 +145,159 @@ fn bench_cold_start(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_banner, bench_text_card, bench_cold_start);
+// ---------------------------------------------------------------------------
+// Workloads
+//
+// The other benchmarks in this file all render roughly the same shape: a few
+// text runs and some flat rectangles on a 1200x630 canvas. That measures fill
+// cost and says almost nothing about the workloads people actually run.
+//
+// This group exists because a benchmark suite that varies only the content and
+// reports no difference is measuring one thing. Each workload here is chosen to
+// stress a *different* stage, and each reports layout, paint and encode
+// separately -- so the split can move between workloads instead of being a
+// single number that happens to be true of one card.
+// ---------------------------------------------------------------------------
+
+/// Dense text: many runs, many glyphs, little area.
+///
+/// Stresses shaping and glyph rasterisation. Layout should stop being
+/// negligible here, which is the point of including it.
+fn workload_text_dense() -> Node {
+    let mut children = Vec::new();
+    for i in 0..40 {
+        children.push(Node::container(
+            Style::new().with_max_width(1100.0),
+            vec![
+                Node::text(
+                    format!("Section {i}: layout, paint and encode are separate stages").as_str(),
+                    Style::text(20.0, "#0f172a"),
+                ),
+                Node::text(
+                    "Glyph rasterization dominates a text-heavy card, and the cache is per thread and per size.",
+                    Style::text(15.0, "#475569"),
+                ),
+            ],
+        ));
+    }
+    Node::container(
+        Style::new()
+            .with_size(1200.0, 630.0)
+            .with_background("#ffffff")
+            .with_padding(16.0),
+        children,
+    )
+}
+
+/// Several large decoded images composited.
+///
+/// Stresses decode-once-then-blit and the alpha path, and it is the workload
+/// most likely to move if the image path changes.
+fn workload_images() -> Node {
+    // A deterministic gradient, generated rather than loaded so the benchmark
+    // does not depend on an asset being present or on a decoder being warm.
+    let mut raw = Vec::with_capacity(256 * 256 * 3);
+    for y in 0..256u32 {
+        for x in 0..256u32 {
+            raw.push((x * 255 / 255) as u8);
+            raw.push((y * 255 / 255) as u8);
+            raw.push(((x ^ y) * 255 / 255) as u8);
+        }
+    }
+    // Wrap in a PNG so the benchmark measures the real image path, including
+    // decode, rather than a pre-decoded buffer nobody would hand the library.
+    let mut png = Vec::new();
+    {
+        use image::codecs::png::{CompressionType, FilterType, PngEncoder};
+        use image::{ExtendedColorType, ImageEncoder};
+        PngEncoder::new_with_quality(&mut png, CompressionType::Default, FilterType::Adaptive)
+            .write_image(&raw, 256, 256, ExtendedColorType::Rgb8)
+            .expect("encode fixture");
+    }
+
+    let mut grid = Vec::new();
+    for i in 0..12 {
+        grid.push(Node::image(
+            png.clone(),
+            Style::new().with_size(370.0, 180.0).with_radius(8.0),
+        ));
+        let _ = i;
+    }
+    Node::container(
+        Style::new()
+            .with_size(1200.0, 630.0)
+            .with_background("#0f172a")
+            .with_padding(20.0)
+            .with_gap(10.0),
+        grid,
+    )
+}
+
+/// Many small nodes: a document-shaped page rather than a card.
+///
+/// Stresses layout and the node tree rather than the raster target, and is the
+/// shape whose cost is least likely to be predicted from the card benchmarks.
+fn workload_document() -> Node {
+    let mut rows = Vec::new();
+    for i in 0..150 {
+        rows.push(Node::container(
+            Style::new().with_size(1000.0, 14.0),
+            vec![Node::text(
+                format!("Row {i}").as_str(),
+                Style::text(11.0, "#334155"),
+            )],
+        ));
+    }
+    Node::container(
+        Style::new()
+            .with_size(1200.0, 630.0)
+            .with_background("#ffffff")
+            .with_padding(12.0),
+        rows,
+    )
+}
+
+/// Layout, paint and encode, for one workload.
+///
+/// Shared by all three so the split is comparable between them. Measuring the
+/// stages separately is the only way to tell "slower" from "slower at a
+/// different thing".
+fn bench_workload_stages(c: &mut Criterion, name: &str, tree: &Node, area: u64) {
+    let mut group = c.benchmark_group(name);
+    group.throughput(Throughput::Bytes(area));
+
+    group.bench_function("layout", |b| {
+        b.iter(|| hikari::compute_layout(tree, 1200.0, 630.0).expect("layout"));
+    });
+    group.bench_function("paint_to_rgba", |b| {
+        b.iter(|| {
+            let placed = hikari::compute_layout(tree, 1200.0, 630.0).expect("layout");
+            hikari::render_placed_to_rgba(&placed, 1200, 630).expect("paint")
+        });
+    });
+    // Encode only: paint once, then time the encode. Re-painting inside the
+    // encode case would report the sum of the two, which is the mistake this
+    // file's header describes at length.
+    let placed = hikari::compute_layout(tree, 1200.0, 630.0).expect("layout");
+    group.bench_function("encode_png", |b| {
+        b.iter(|| hikari::render_placed_to_png(&placed, 1200, 630).expect("encode"));
+    });
+    group.finish();
+}
+
+fn bench_workloads(c: &mut Criterion) {
+    assert_release_build();
+    let area = 1200 * 630 * 4;
+    bench_workload_stages(c, "workload_text_dense", &workload_text_dense(), area);
+    bench_workload_stages(c, "workload_images", &workload_images(), area);
+    bench_workload_stages(c, "workload_document", &workload_document(), area);
+}
+
+criterion_group!(
+    benches,
+    bench_banner,
+    bench_text_card,
+    bench_cold_start,
+    bench_workloads
+);
 criterion_main!(benches);

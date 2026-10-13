@@ -194,9 +194,39 @@ claimed a large speed advantage over other renderers. That number came from a
 debug build with weak compression, was wrong, and has been retracted. The
 measurements above are the ones we can stand behind.
 
+### Choosing an output format
+
+Encoding is **40–56% of a render**, and the choice of format matters more than
+any of the numbers above. Measured, same machine:
+
+| | Time | Flat card | Image tiles |
+|---|---|---|---|
+| raw RGBA | 1.89 ms | — | — |
+| `render_svg` | **0.005 ms** | 309 B | — |
+| `render_webp` | ~3.5 ms | 8,662 B | 178,902 B |
+| `render_png` | ~3.8 ms | 12,238 B | 28,858 B |
+
+Three things follow, and none of them is "always use WebP":
+
+- **`render_svg` is 780× faster than PNG** because it rasterises nothing — it
+  serialises. If the consumer can take vectors (a browser, most PDF pipelines),
+  this is the single largest decision available to you. If it cannot, you have
+  moved the cost rather than removed it.
+- **WebP wins by 29% on flat UI content and loses by 6.2× on photographic or
+  high-frequency content.** Lossless WebP wins where there are few distinct
+  colours; PNG's predictive filters win where there are many. A gradient tile is
+  its best case and WebP's worst.
+- **If you need neither, `render_placed_to_rgba` stops at the pixels** and
+  skips the encode entirely — which is half the cost.
+
+Which format wins is a measurement on your own content, not a rule worth
+copying from a table. The reasoning and the full stage splits are in
+[BENCHMARKS.md](BENCHMARKS.md).
+
 Output sizes for the examples above: `og.png` 13 KB, `i18n.png` 30 KB,
-`card.png` 58 KB. The PNG encoder's size/speed trade-off curve is measured and
-published in [BENCHMARKS.md](BENCHMARKS.md).
+`card.png` 58 KB — the last of which is a full-canvas gradient, and is genuinely
+that large rather than mis-encoded. The PNG encoder's size/speed trade-off curve
+is measured and published in [BENCHMARKS.md](BENCHMARKS.md).
 
 ---
 
