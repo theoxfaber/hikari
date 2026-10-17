@@ -639,7 +639,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hikari-rs"
-version = "0.21.10"
+version = "0.21.11"
 dependencies = [
  "criterion",
  "ed25519-dalek",
@@ -655,7 +655,7 @@ dependencies = [
 
 [[package]]
 name = "hikari-rs-animate"
-version = "0.21.10"
+version = "0.21.11"
 dependencies = [
  "hikari-rs-core",
  "image",
@@ -664,7 +664,7 @@ dependencies = [
 
 [[package]]
 name = "hikari-rs-core"
-version = "0.21.10"
+version = "0.21.11"
 dependencies = [
  "harfrust",
  "hex",
@@ -681,7 +681,7 @@ dependencies = [
 
 [[package]]
 name = "hikari-rs-node"
-version = "0.21.10"
+version = "0.21.11"
 dependencies = [
  "ed25519-dalek",
  "hikari-rs",
@@ -692,7 +692,7 @@ dependencies = [
 
 [[package]]
 name = "hikari-rs-pdf"
-version = "0.21.10"
+version = "0.21.11"
 dependencies = [
  "allsorts",
  "flate2",
@@ -704,7 +704,7 @@ dependencies = [
 
 [[package]]
 name = "hikari-rs-raster"
-version = "0.21.10"
+version = "0.21.11"
 dependencies = [
  "flate2",
  "hikari-rs-core",
@@ -715,7 +715,7 @@ dependencies = [
 
 [[package]]
 name = "hikari-rs-svg"
-version = "0.21.10"
+version = "0.21.11"
 dependencies = [
  "base64",
  "hikari-rs-core",
@@ -723,7 +723,7 @@ dependencies = [
 
 [[package]]
 name = "hikari-rs-wasm"
-version = "0.21.10"
+version = "0.21.11"
 dependencies = [
  "hikari-rs",
  "serde_json",

@@ -3,6 +3,79 @@
 All notable changes to Hikari. Versions match the workspace `version` and
 the `hikari-rs` facade crate.
 
+## v0.21.11 — workload benchmarks, and what they immediately found
+
+### Fixed — layout fully decoded every image
+
+`image_dimensions` called `image::load_from_memory`, which decodes the whole
+image, to read its width and height. Those are in the container header — two
+`u32`s at offset 16 in a PNG — so layout was decompressing every pixel of every
+image in the tree purely to learn how large it was, and the paint stage then
+decoded them all again.
+
+```
+images/layout   before 3.969 ms   after 0.013 ms    300x
+images/paint    before 13.845 ms  after 8.901 ms    1.6x
+```
+
+Layout + paint for an image-heavy card went from 17.81 ms to 8.91 ms. The paint
+improvement is the same fix seen from the other side: the image was decoded
+twice and now is decoded once.
+
+**The bug was never found by any test in this project**, and the reason is
+worth recording: the benchmark suite rendered one shape — a few text runs and
+flat rectangles — and this bug is not about that shape. The corpus had 22 cases
+including images, and none of them caught it, because correctness was never in
+question. The image was decoded correctly; it was just decoded far too early
+and too many times, which is a performance defect that looks exactly like a
+non-defect.
+
+Adding a workload benchmark whose only job was to stress a different stage
+found it in the first run.
+
+### Added — workload benchmarks
+
+Three workloads chosen to stress different stages, each reporting
+layout / paint / encode separately so the split can move between them:
+
+| Workload | layout | paint | encode |
+|---|---|---|---|
+| `text_dense` — 40 sections, 80 runs | 0.751 ms | 4.238 ms | 5.221 ms |
+| `images` — 12 decoded PNGs | 0.013 ms | 8.901 ms | 12.182 ms |
+| `document` — 150 rows | 0.442 ms | 2.536 ms | 3.624 ms |
+
+### Corrected — two claims this branch made from a single card
+
+- **"Encoding is 51% of the cost."** It is 40–56% depending on workload, and
+  layout is 0.4% on a card and 0.1% on an image card. The number was true and
+  the generalisation was not.
+- **"WebP is a 29% size win."** On twelve image tiles WebP is a **6.2x size
+  loss** — 178,902 bytes against PNG's 28,858. Lossless WebP wins on flat UI
+  colour and loses badly on high-frequency content. The README now says there is
+  no default that is right, instead of recommending one from a card.
+- **"Cold start is dominated by glyph rasterization."** It is not. The first
+  render in a process is 10.4 ms; first paint is 3.19 ms against a second paint
+  of 2.26 ms, so glyph rasterization is about 0.9 ms of it, across 10 glyph
+  misses. Pre-warming the cache would be optimising the smaller half of a
+  one-time cost, so it is not worth doing and was not done.
+
+All three were the same error in different clothes: measuring one thing and
+writing down the answer as though it were general.
+
+### Known cost — WASM grew 5%
+
+The header-only image read is worth 186,655 bytes of bundle: 3,693,832 ->
+3,879,541. The CI budget moved from 3.75 MB to 3.88 MB with the reason
+recorded in the workflow, because a budget that moves without a reason attached
+is how you end up at 8 MB wondering why.
+
+The 186 KB is probably duplication rather than new capability: the raster
+backend decodes with `load_from_memory` while the header path uses the generic
+`ImageReader`, which monomorphises a second copy of decoder setup. Replacing it
+with a small hand-rolled header parse, differentially tested against
+`load_from_memory` for every supported format, would likely recover it. Not done
+here; recorded as the first thing to try before the budget moves again.
+
 ## v0.21.10 — PDF/A-1b conformance, verified rather than asserted
 
 v0.21.9 shipped PDF/A-1b support with a CI job meant to gate it. **That job had

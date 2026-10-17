@@ -183,6 +183,26 @@ Reading the shares rather than the totals:
 - **Layout scales with text, not area.** `document` has 150 nodes and costs
   0.44 ms; `text_dense` has 80 runs and costs 0.75 ms.
 
+### What the image workload cost
+
+The same change has a WASM price, and it is not small: **+185,709 bytes, 5% of
+the bundle** (3,693,832 -> 3,879,541). The CI budget moved from 3.75 MB to
+3.88 MB, with the reason recorded in the workflow rather than the number being
+nudged quietly.
+
+That 186 KB is very likely *duplication*. The raster backend decodes with
+`image::load_from_memory`; the header-only path goes through `ImageReader`,
+which is generic over its reader and so monomorphises a second copy of decoder
+setup. If that reading is right, the bundle is carrying two implementations of
+the same thing and neither is necessary.
+
+The fix would be a small hand-rolled header parse -- PNG IHDR at offset 16,
+JPEG SOFn, GIF logical screen descriptor, WebP VP8X -- differentially tested
+against `load_from_memory` for every supported format so the hand-rolled part
+can never silently disagree with the real decoder. That test is what makes it
+safe rather than a leap of faith. Not done here; it is the first thing to try
+before the budget is raised again.
+
 ### What the image workload found
 
 Adding `images` to this suite immediately found a defect the other benchmarks

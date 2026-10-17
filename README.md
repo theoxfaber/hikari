@@ -423,7 +423,7 @@ An unoptimised `cargo build --release --target wasm32-unknown-unknown` is
 plus `read-fonts`; the trade is a maintained shaper for the size, and `wasm-opt`
 should claw some of it back.
 
-**CI enforces a 3.75 MB budget on that figure.** The bundle had already drifted
+**CI enforces a 3.88 MB budget on that figure.** The bundle had already drifted
 2.95 MB to 3.51 MB across three dependency migrations without anything noticing,
 because "it compiles" is not a statement about size and this paragraph is the one
 place the number was written down. The budget is on the unoptimised output on
@@ -721,7 +721,7 @@ Ordered by what most limits the project, not by what is easiest.
       the change column in the job log, so a regression is visible without
       anything asserting on a noisy shared runner. A hard gate still needs a
       dedicated runner and is not claimed here.
-- [x] **A WASM size budget in CI.** 3.75 MB against a measured 3.52 MB. See the
+- [x] **A WASM size budget in CI.** 3.88 MB against a measured 3.70 MB. See the
       WASM section above.
 - [x] **Animated WebP** encoding. `render_animation_webp`, lossless, next to the
       existing GIF and APNG paths. The container is written here -- no Rust
