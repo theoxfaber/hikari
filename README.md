@@ -181,8 +181,20 @@ background, two text runs, one with wrapping.
 | Warm layout only | 0.10 ms |
 | Warm paint → RGBA | 3.06 ms |
 
-Cold start is dominated by font rasterization, which is why the glyph bitmap
-cache and build-time subset exist. Reproduce with:
+Cold start is **not** dominated by font rasterization, which is worth stating
+because the opposite has been assumed here. Measured on the first render in a
+process: 10.4 ms total, of which the first paint is 3.19 ms and the second is
+2.26 ms — so glyph rasterization is about **0.9 ms** of it, across 10 glyph
+misses. Pre-warming the cache would be optimising the smaller half of a
+one-time cost.
+
+The rest is first-touch work that is genuinely one-time: parsing the font face,
+allocating the pixmap, and paying the encode. Neither the glyph bitmap cache
+nor the build-time subset is what makes cold start bearable; they exist because
+repeated glyphs at repeated sizes are common, which is a steady-state argument
+rather than a cold-start one.
+
+Reproduce with:
 
 ```sh
 cargo bench -p hikari-rs --bench render

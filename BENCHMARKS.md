@@ -365,8 +365,13 @@ not been measuring anything.
 
 ## Still slower than we would like
 
-- Cold start at 14.3 ms is dominated by first glyph rasterization. A
-  smaller embedded font or a warmed glyph cache across processes would help.
+- Cold start is **not** dominated by glyph rasterization, as this file used to
+  claim. Measured on the first render in a process: 10.4 ms total, first paint
+  3.19 ms against a second paint of 2.26 ms, across 10 glyph misses. Glyph
+  rasterization is ~0.9 ms of a one-time cost, so pre-warming the cache would
+  be optimising the smaller half of it and is not worth doing. What remains is
+  genuinely one-time setup — font face parse, pixmap allocation, encode — and
+  there is no lever on it short of not starting a process.
 - `card.png` at 58 KB looked too large for a mostly-flat image, and the note
   guessed that gradient banding was the cause. **Measured, and the guess was
   wrong.** The hero gradient is constant down every column (zero variation over
