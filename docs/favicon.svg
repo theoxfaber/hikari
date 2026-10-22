@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- The nav mark, at favicon size: one accent square on the page background,
+       nothing else. A favicon is 18px of pixels; a monogram would be noise. -->
+  <rect width="32" height="32" rx="7" fill="#0a0e1a"/>
+  <rect x="9" y="9" width="14" height="14" rx="3.5" fill="#7dd3fc"/>
+</svg>

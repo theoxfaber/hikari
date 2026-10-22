@@ -5,6 +5,9 @@ node_modules/
 *.webp
 *.svg
 !assets/*.svg
+# 353 bytes of static hand-written source for the site tab icon; every other
+# svg under docs/ is engine output and stays ignored on purpose.
+!docs/favicon.svg
 # Generated WASM artifacts (rebuild with the command in README > WebAssembly).
 wasm/*.wasm
 wasm/hikari_wasm.js
