@@ -68,14 +68,19 @@ jobs:
         with:
           node-version: 20
 
+      # One FILTER argument, deliberately: criterion 0.5 declares a single
+      # positional filter (compiled as a regex), so three filter strings make
+      # clap fail with "unexpected argument" on the second one. The alternation
+      # below selects the same three benchmark families as three separate
+      # filters would; --list verifies the set: 15 benchmarks.
       - name: benchmark (pass 1)
-        run: cargo bench -p hikari-rs --bench render -- $CRITERION_FLAGS "banner_" "text_card" "workload_"
+        run: cargo bench -p hikari-rs --bench render -- $CRITERION_FLAGS "(banner_|text_card|workload_)"
       - name: stash pass 1 results
         run: cp -r target/criterion /tmp/criterion-pass1
       # Deliberately a second full pass, not a resume: the point is two
       # independent sampling intervals on the same keys.
       - name: benchmark (pass 2)
-        run: cargo bench -p hikari-rs --bench render -- $CRITERION_FLAGS "banner_" "text_card" "workload_"
+        run: cargo bench -p hikari-rs --bench render -- $CRITERION_FLAGS "(banner_|text_card|workload_)"
 
       - name: compare or rebaseline
         env:
