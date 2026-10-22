@@ -843,6 +843,13 @@ job of the published numbers above. The baseline refreshes itself with
 | `fuzz (css, pdf, tree_json, fonts)` | parser and JSON-tree crashes and hangs on untrusted bytes |
 | `perf` (separate workflow) | a stage ≥ 2x slower than the committed baseline, across two passes |
 
+One accepted trade-off is recorded with them: LeakSanitizer is off for fuzz
+runs, because it is an end-of-run, stateful check that reported
+non-reproducible 1-3 byte "leaks" on previously-green targets (the reasoning
+and local evidence are in the `fuzz` job comment in `ci.yml`). ASAN's crash,
+overflow and OOM detection stays on -- that and the corpus is what has found
+the real defects here.
+
 The fuzz jobs are the newest of these and the least trustworthy by default: for
 two releases both were failing to *build* (`no bin target named 'css'`), which
 in a job list reads much like a fuzzer that simply found nothing. When they

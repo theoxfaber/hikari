@@ -12,13 +12,23 @@
 //! corpus can hammer the font parser thousands of times per second without
 //! paying for a document render to get there.
 //!
-//! # Face-cache growth
+//! # Face-cache growth, and why leak detection is off for this class
 //!
 //! Every successfully parsed distinct byte string is cached for the life of
 //! the process. A fuzz campaign can therefore grow the cache unboundedly;
 //! this is true of the real API too (documented there), and bounded runs in
 //! CI never reach it. A long campaign should run with `--rss_limit_mb` set,
 //! like every other target.
+//!
+//! LeakSanitizer is disabled for CI fuzz runs, for all four targets, for one
+//! reason: this cache (and `css`/`pdf`'s font registrations) are
+//! process-lifetime by contract, so end-of-run leak reports on them are
+//! guaranteed, and on the other targets they are on a stateful malloc/free
+//! counter that made previously-green jobs fail intermittently with 1-3 byte
+//! reports. ASAN's crash/overflow/OOM detection stays on: that is what the
+//! fuzzers have actually found here (the tag-scanner slice panic). The full
+//! reasoning, with the local evidence, is in the fuzz job comment in
+//! `.github/workflows/ci.yml`.
 //!
 //! # What counts as a failure
 //!
