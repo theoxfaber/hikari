@@ -527,6 +527,16 @@ jobs:
         # `fonts` the font faces the WASM/Node `register_font` entry point
         # accepts from a caller.
         target: [css, pdf, tree_json, fonts]
+        # libFuzzer flags LeakSanitizer reports at exit. `fonts` trips it by
+        # construction: `register_font` interns the caller's bytes, entry and
+        # parsed face for the life of the process *by documented contract* (a
+        # wasm page registers its fonts once and reuses the ids), so every
+        # parsed input leaves a process-lifetime allocation LeakSanitizer
+        # counts. Leak detection stays on for the other three targets, where a
+        # report would be a real per-call leak; this one is guarded by the
+        # 1 MB input cap and the bounded CI budget instead.
+        lsan:
+          [true, true, true, false]
     steps:
       - uses: actions/checkout@v4
       # Nightly plus cargo-fuzz. `cargo fuzz` is a separate cargo subcommand and
@@ -559,7 +569,10 @@ jobs:
       # harnesses compile, the seeds are exercised, and a crash is caught within
       # CI's time budget. A long campaign belongs on a dedicated runner, the same
       # way the benchmark gate does.
-      - run: cargo +nightly fuzz run ${{ matrix.target }} -- -max_total_time=90
+      - run: |
+          ARGS=(-max_total_time=90)
+          [ "${{ matrix.lsan }}" = true ] || ARGS+=(-detect_leaks=0)
+          cargo +nightly fuzz run ${{ matrix.target }} -- "${ARGS[@]}"
       # Any crash leaves an artifact; failing the build on one is the entire
       # value of the job.
       - uses: actions/upload-artifact@v4
