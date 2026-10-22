@@ -6,9 +6,32 @@
 <title>Hikari — render images, SVG and PDF from layout trees</title>
 <meta name="description" content="A pure-Rust render engine. One node tree in, PNG, SVG, animated GIF, WebP and PDF with selectable text out. No browser, no forked dependencies.">
 <meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0a0e1a">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="canonical" href="https://theoxfaber.github.io/hikari/index.html">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/bricolage-grotesque@5/index.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/jetbrains-mono@5/index.css">
+<!-- Card image is the engine's own output, which is the point of the product.
+     og:image wants a file that exists at that exact URL, so the root render is
+     copied into docs/img on site builds rather than linked from ../.. -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="hikari">
+<meta property="og:title" content="Hikari — render images, SVG and PDF from layout trees">
+<meta property="og:description" content="A pure-Rust render engine. One node tree in, PNG, SVG, animated GIF, WebP and PDF with selectable text out. No browser, no forked dependencies.">
+<meta property="og:url" content="https://theoxfaber.github.io/hikari/index.html">
+<meta property="og:image" content="https://theoxfaber.github.io/hikari/img/card.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Hikari — render images, SVG and PDF from layout trees">
+<meta name="twitter:description" content="A pure-Rust render engine. One node tree in, PNG, SVG, animated GIF, WebP and PDF with selectable text out. No browser, no forked dependencies.">
+<meta name="twitter:image" content="https://theoxfaber.github.io/hikari/img/card.png">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+
+<a class="skip-link" href="#main">Skip to content</a>
 
 <header class="nav" id="nav">
   <div class="page nav__inner">
@@ -16,17 +39,17 @@
       <span class="nav__mark" aria-hidden="true"></span>
       hikari
     </a>
-    <nav class="nav__links" aria-label="Primary">
-      <a class="nav__link" href="install.html" data-optional>Install</a>
-      <a class="nav__link" href="api.html" data-optional>API</a>
-      <a class="nav__link" href="benchmarks.html">Benchmarks</a>
-      <a class="nav__link" href="licence.html" data-optional>Licence</a>
-      <a class="nav__link" href="playground.html">Playground</a>
-    </nav>
+      <nav class="nav__links" aria-label="Primary">
+        <a class="nav__link" href="install.html" data-optional>Install</a>
+        <a class="nav__link" href="api.html" data-optional>API</a>
+        <a class="nav__link" href="benchmarks.html">Benchmarks</a>
+        <a class="nav__link" href="licence.html" data-optional>Licence</a>
+        <a class="nav__link" href="playground.html">Playground</a>
+      </nav>
   </div>
 </header>
 
-<main>
+<main id="main">
 
   <!-- 1. Claim. One idea, stated once. -->
   <section class="hero">
@@ -297,6 +320,36 @@ npm i @hikari-rs/node</code></pre>
       io.observe(el);
     });
   }
+
+  // Copy buttons on command blocks. Added by script rather than written into
+  // every block by hand, so the markup stays readable and the behaviour is
+  // one place. No clipboard API under file:// on some browsers: fall back to
+  // a silent inability, which is honest given the button says "Copy".
+  document.querySelectorAll('.code-block').forEach(function (block) {
+    var pre = block.querySelector('pre');
+    if (!pre) return;
+    var btn = document.createElement('button');
+    btn.className = 'code-block__copy';
+    btn.type = 'button';
+    btn.setAttribute('aria-label', 'Copy command to clipboard');
+    btn.textContent = 'Copy';
+    var label = block.querySelector('.code-block__label');
+    if (label) label.classList.add('code-block__label--shifted');
+    btn.addEventListener('click', function () {
+      navigator.clipboard.writeText(pre.innerText).then(function () {
+        btn.dataset.done = 'true';
+        btn.textContent = 'Copied';
+        window.setTimeout(function () {
+          btn.dataset.done = 'false';
+          btn.textContent = 'Copy';
+        }, 1600);
+      }, function () {
+        btn.textContent = 'Ctrl+C…';
+        window.setTimeout(function () { btn.textContent = 'Copy'; }, 1600);
+      });
+    });
+    block.appendChild(btn);
+  });
 </script>
 
 </body>

@@ -34,19 +34,40 @@ path = "fuzz_targets/pdf.rs"
 test = false
 doc = false
 
+[[bin]]
+name = "tree_json"
+path = "fuzz_targets/tree_json.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fonts"
+path = "fuzz_targets/fonts.rs"
+test = false
+doc = false
+
 [dependencies]
 libfuzzer-sys = "0.4"
-
-# `hikari-rs` is deliberately absent. Both targets drive `hikari-rs-core` and
-# `hikari-rs-pdf` directly, because that is where the parsers are: fuzzing the
-# facade would spend most of its budget in argument marshalling. Cargo flags the
-# unused dependency, which is correct.
 
 [dependencies.hikari-rs-core]
 path = "../crates/hikari-core"
 
 [dependencies.hikari-rs-pdf]
 path = "../crates/hikari-pdf"
+
+# `hikari-rs` was deliberately absent for a long time: the `css` and `pdf`
+# targets drive the parsers directly, and fuzzing the facade would spend most
+# of its budget in argument marshalling. The `tree_json` and `fonts` targets
+# break that rule on purpose and say so in their headers: they exist precisely
+# to exercise what the WASM and Node bindings accept from a JS caller, so
+# going through the facade's `render_svg` / `register_font` *is* the surface
+# under test, not overhead. `serde_json` is there because the binding's first
+# act on a render call is that parse.
+[dependencies.hikari-rs]
+path = "../crates/hikari"
+
+[dependencies.serde_json]
+version = "1"
 
 # Fuzz targets are excluded from the workspace so a `cargo test --workspace` on
 # the library does not try to build libfuzzer-sys, and so `cargo deny` does not

@@ -423,7 +423,10 @@ An unoptimised `cargo build --release --target wasm32-unknown-unknown` is
 plus `read-fonts`; the trade is a maintained shaper for the size, and `wasm-opt`
 should claw some of it back.
 
-**CI enforces a 3.88 MB budget on that figure.** The bundle had already drifted
+**CI enforces a 3.75 MB budget on that figure.** It went to 3.88 MB in v0.21.11
+when the header-only image read cost +186 KB, and was restored in v0.21.12
+after that 186 KB turned out to be removable duplication — both moves are
+recorded in the workflow. The bundle had already drifted
 2.95 MB to 3.51 MB across three dependency migrations without anything noticing,
 because "it compiles" is not a statement about size and this paragraph is the one
 place the number was written down. The budget is on the unoptimised output on
@@ -721,7 +724,7 @@ Ordered by what most limits the project, not by what is easiest.
       the change column in the job log, so a regression is visible without
       anything asserting on a noisy shared runner. A hard gate still needs a
       dedicated runner and is not claimed here.
-- [x] **A WASM size budget in CI.** 3.88 MB against a measured 3.70 MB. See the
+- [x] **A WASM size budget in CI.** 3.75 MB against a measured 3.52 MB — raised to 3.88 once with the reason attached, restored after the cost was engineered away. See the
       WASM section above.
 - [x] **Animated WebP** encoding. `render_animation_webp`, lossless, next to the
       existing GIF and APNG paths. The container is written here -- no Rust
@@ -744,6 +747,11 @@ Ordered by what most limits the project, not by what is easiest.
       failing to build — which in a job list is indistinguishable from a fuzzer
       that found nothing. On first real run it found a slice-index panic in the
       HTML tag scanner. 794,576 CSS and 33,010 PDF runs clean after the fix.
+      Two more untrusted surfaces are wired since: `tree_json` (the tree JSON
+      the WASM and Node bindings parse from JS callers — every browser render
+      starts at that deserialiser) and `fonts` (the `register_font` byte path
+      those same callers reach). Four targets now cover every place the crate
+      turns untrusted bytes into an internal structure.
 - [x] **A frozen CSS spec with a conformance suite.**
       `docs/css-spec.json` is generated from the tables in
       `crates/hikari-core/src/spec.rs`, and `spec::conformance` asserts every
@@ -820,14 +828,20 @@ previous ones:
 | `cross-platform byte determinism` | any unintended change in rendered output |
 | `benchmark smoke` | benches that stop compiling or hang |
 
-A criterion regression gate exists but is deliberately **not** in the workflow:
-it needs a self-hosted runner, and a job waiting for a runner that does not exist
-stays `queued` forever, which leaves every run inconclusive. The command is
-recorded in `.github/workflows/ci.yml`.
+A regression gate now runs in `.github/workflows/perf.yml` on every merge to
+main, with honest limits because it runs on a shared runner: two benchmark
+passes, best-of-two medians per key against a committed baseline
+(`.github/perf-baseline.json`), keys under 20 µs excluded as unmeasurable on a
+VM, and a merge fails only if a stage is ≥ 2× slower *and stays that way across
+both passes*. It exists to catch the catastrophic class — the 300× image-layout
+bug would have been caught by it — not five-percent drift, which remains the
+job of the published numbers above. The baseline refreshes itself with
+`[skip ci]` commits, and `scripts/perf/gate.mjs` documents every threshold.
 | `supply chain` | unmaintained or vulnerably-licensed dependencies |
 | `node bindings` | native binding and package metadata regressions |
 | `PDF/A conformance` | output that a checker rejects — see below |
-| `fuzz (css, pdf)` | parser crashes and hangs on untrusted bytes |
+| `fuzz (css, pdf, tree_json, fonts)` | parser and JSON-tree crashes and hangs on untrusted bytes |
+| `perf` (separate workflow) | a stage ≥ 2x slower than the committed baseline, across two passes |
 
 The fuzz jobs are the newest of these and the least trustworthy by default: for
 two releases both were failing to *build* (`no bin target named 'css'`), which

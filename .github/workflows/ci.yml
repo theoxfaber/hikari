@@ -314,29 +314,30 @@ jobs:
           WASM=$(find target/wasm32-unknown-unknown/release -maxdepth 1 -name '*.wasm' -print -quit)
           test -n "$WASM" || { echo "no wasm produced"; exit 1; }
           BYTES=$(wc -c < "$WASM" | tr -d ' ')
-          # 3.75 MB. The measured size is 3.51 MB, so this leaves roughly 250 KB of
-          # headroom: enough for an intended change, little enough that a
-          # dependency that quietly adds half a megabyte fails.
-          # 3.88 MB, raised from 3.75 MB in v0.21.11, and the reason is
-          # recorded rather than the number being nudged quietly.
+          # 3.75 MB, restored in v0.21.12 after having been raised to 3.88 MB
+          # in v0.21.11. Both moves are recorded here.
           #
-          # `image_dimensions` used to fully decode an image to read its
-          # dimensions, which are in the header. Reading the header instead
-          # took image-heavy layout from 3.97 ms to 0.013 ms -- a 300x win --
-          # and cost +185,709 bytes of WASM, 5% of the bundle.
+          # v0.21.11 raised it: the header-only image read cost +185,709 bytes,
+          # which looked like an unavoidable price for the 300x layout win.
           #
-          # That 186 KB is very likely duplication rather than new
-          # functionality: the raster backend decodes with `load_from_memory`,
-          # and the header-only path instantiates a second generic decoder
-          # monomorphisation. So the bundle is probably carrying two copies of
-          # decoder setup. Replacing `ImageReader` with a hand-rolled header
-          # parse, differentially tested against `load_from_memory` for every
-          # supported format, would very likely recover it -- and is the first
-          # thing to try before this number is raised again.
+          # v0.21.12 lowered it back: the 186 KB turned out to be duplication,
+          # exactly as predicted. The raster backend decodes with
+          # `load_from_memory`; the header path went through the generic
+          # `ImageReader`, which monomorphised a second copy of every format
+          # decoder. Replacing it with a hand-rolled header parse -- PNG IHDR,
+          # JPEG SOFn segment scan, GIF logical screen descriptor, WebP
+          # VP8/VP8L/VP8X -- recovered 185,355 bytes. The parse is pinned by
+          # `crates/hikari-core/tests/dimensions_differential.rs`, which
+          # asserts the same answer as `load_from_memory` for every supported
+          # format, and totality for truncated and mutated input. That test
+          # caught a real height/width swap in the JPEG scanner on its first
+          # run.
           #
-          # A budget that never moves catches nothing. One that moves without a
-          # reason attached is how you end up at 8 MB wondering why.
-          BUDGET=$((3880 * 1024))
+          # Measured 3,694,186 bytes against the restored 3,840,000 budget:
+          # 145 KB of headroom. A budget that never moves catches nothing. One
+          # that moves without a reason attached is how you end up at 8 MB
+          # wondering why.
+          BUDGET=$((3750 * 1024))
           MB=$(awk "BEGIN {printf \"%.2f\", $BYTES / 1048576}")
           echo "wasm: $MB ($BYTES bytes), budget 3.75 MB"
           if [ "$BYTES" -gt "$BUDGET" ]; then
@@ -520,10 +521,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The two parsers that take untrusted input. Everything else in this
-        # crate takes a typed tree, so a fuzzer has nothing to reach; these two
-        # take bytes.
-        target: [css, pdf]
+        # Every parser that takes untrusted bytes. `css` reaches the HTML and
+        # CSS scanner, `pdf` the PDF writer and font subsetter, `tree_json`
+        # the serde tree that the WASM and Node bindings parse from JSON,
+        # `fonts` the font faces the WASM/Node `register_font` entry point
+        # accepts from a caller.
+        target: [css, pdf, tree_json, fonts]
     steps:
       - uses: actions/checkout@v4
       # Nightly plus cargo-fuzz. `cargo fuzz` is a separate cargo subcommand and

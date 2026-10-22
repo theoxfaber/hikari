@@ -52,3 +52,55 @@ jobs:
       - run: npm publish ./npm --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: publish crates to crates.io
+        # The tag release published npm only, so crates.io version drift
+        # appeared the moment a release shipped: `cargo add hikari-rs` served
+        # whatever was last pushed by hand. This publishes every workspace
+        # member in dependency order, from the workspace root with `-p` --
+        # publishing by `cd`-ing into directories is a second, error-prone
+        # way of saying the same thing.
+        #
+        # "Already exists" is the normal state of a rerun and of a version
+        # bumped in npm first, so it is parsed and treated as success. Any
+        # other failure stops the loop, because a silent partial publish is
+        # worse than a visible one.
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          ORDER=(
+            hikari-rs-core
+            hikari-rs-raster
+            hikari-rs-svg
+            hikari-rs-pdf
+            hikari-rs-animate
+            hikari-rs
+            hikari-rs-wasm
+            hikari-rs-node
+          )
+          if [ -z "${CARGO_REGISTRY_TOKEN:-}" ]; then
+            echo "::warning::CARGO_REGISTRY_TOKEN is not set on this repository; the crates.io publish step is skipped. npm publishes still happen. To enable, add a crates.io token as the CARGO_REGISTRY_TOKEN secret."
+            exit 0
+          fi
+          for crate in "${ORDER[@]}"; do
+            echo "publishing $crate"
+            log=$(cargo publish -p "$crate" 2>&1) || {
+              if echo "$log" | grep -q "already exists on crates.io"; then
+                echo "$crate: version already published, treating as done"
+                continue
+              fi
+              echo "$log"
+              echo "::error::crates.io publish failed for $crate; the remaining members were NOT published."
+              exit 1
+            }
+            echo "$log" | grep -E "^Settings|^Upload|Published|Updating crates.io" | head -4
+            # A dependency in the next iteration's Cargo.toml must be
+            # resolvable from crates.io; the index can lag a second behind
+            # the upload, so wait for the just-published version to appear.
+            ver=$(cargo metadata --no-deps --format-version 1 \
+                  | python3 -c 'import json,sys;print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="'"$crate"'"))')
+            for _ in $(seq 1 30); do
+              cargo search --limit 1 "$crate" 2>/dev/null | grep -q "^$crate = \"$ver\"" && break
+              sleep 5
+            done
+          done

@@ -1,0 +1,106 @@
+# The performance gate.
+#
+# Why this exists: the bench-gate job was removed from ci.yml because it needed
+# a self-hosted runner that does not exist, and a permanently-queued job makes
+# every run inconclusive. That removed, nothing stopped a merge from silently
+# doubling render times until the next local benchmark run. This workflow is
+# the replacement, with honest limits: it runs on a shared runner, so it gates
+# only on catastrophic regressions -- a 2.0x move on a key whose baseline
+# median is at least 20 microseconds, persisting across two separate passes,
+# best-of-two medians per key. That is the class of defect every past incident
+# belonged to. A five-percent drift needs controlled hardware; that check
+# remains the published benchmark runs.
+#
+# The baseline is committed at .github/perf-baseline.json and is refreshed by
+# this same workflow on main (mode: rebaseline) or on demand (workflow_dispatch
+# with the rebaseline input). A baseline commit carries [skip ci] so it cannot
+# trigger ci.yml or itself again; a rerun without it would loop forever.
+#
+# This job runs on push to main only, not on PRs. The point is protecting main;
+# a pull request with a 2x regression will fail here after merge, and the
+# README tells authors to run `cargo bench` before a performance-relevant PR --
+# the same instruction it gives today.
+
+name: perf
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Weekly, so a baseline that has drifted from reality gets refreshed even
+    # without new code: GitHub-hosted runner images change under us, and a
+    # stale baseline teaches the wrong normal.
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "compare: gate against the committed baseline. rebaseline: overwrite it from this run."
+        default: compare
+        type: choice
+        options: [compare, rebaseline]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: perf
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    env:
+      # Bound per-case sampling so two passes fit the timeout: this gate is
+      # about catching 2x moves, not high-precision medians.
+      CRITERION_FLAGS: "--measurement-time 3 --warm-up-time 1 --sample-size 20"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The rebaseline branch pushes to main; a shallow snapshot is enough
+          # for that push, but a full history avoids rebase conflicts arguing
+          # with whatever landed in the meantime.
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: benchmark (pass 1)
+        run: cargo bench -p hikari-rs --bench render -- $CRITERION_FLAGS "banner_" "text_card" "workload_"
+      - name: stash pass 1 results
+        run: cp -r target/criterion /tmp/criterion-pass1
+      # Deliberately a second full pass, not a resume: the point is two
+      # independent sampling intervals on the same keys.
+      - name: benchmark (pass 2)
+        run: cargo bench -p hikari-rs --bench render -- $CRITERION_FLAGS "banner_" "text_card" "workload_"
+
+      - name: compare or rebaseline
+        env:
+          MODE: ${{ inputs.mode || 'compare' }}
+        run: node scripts/perf/gate.mjs --mode "$MODE" --first /tmp/criterion-pass1 --second target/criterion --baseline .github/perf-baseline.json
+
+      # Runs after every outcome except a failed compare (a regression exits 1
+      # and everything after the gate step is skipped). The commit itself only
+      # happens when the baseline file actually moved, so compare-mode passes
+      # are no-ops here. This is also how the bootstrap works: the very first
+      # run finds no baseline, the gate writes one and exits 0, and this step
+      # lands it on main.
+      - name: push refreshed baseline
+        run: |
+          git config user.name "hikari benchmark bot"
+          git config user.email "benchmark@hikari.invalid"
+          git checkout main
+          git add .github/perf-baseline.json
+          if git diff --cached --quiet; then
+            echo "baseline unchanged"
+            exit 0
+          fi
+          git commit -m "[skip ci] perf: refresh baseline from run ${GITHUB_RUN_ID}
+
+          Committed by the perf workflow's rebaseline mode; see
+          scripts/perf/gate.mjs for what the numbers mean and why the
+          thresholds are what they are."
+          git push origin main

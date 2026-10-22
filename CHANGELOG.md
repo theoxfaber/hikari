@@ -3,6 +3,94 @@
 All notable changes to Hikari. Versions match the workspace `version` and
 the `hikari-rs` facade crate.
 
+## v0.21.12 — the WASM debt paid back, a perf gate, and the site's own numbers
+
+### Recovered — the 186 KB of WASM duplication
+
+The prediction recorded in v0.21.11 held. `image_dimensions` now reads PNG
+IHDR, JPEG's SOFn segment stream, GIF's logical screen descriptor and WebP's
+VP8/VP8L/VP8X headers directly, instead of going through the generic
+`image::ImageReader` that monomorphised a second copy of every format decoder
+next to the one `load_from_memory` already carries for the raster backend.
+
+```
+wasm: 3,879,541 -> 3,694,186 bytes   -185,355   bundle back to 3.52 MB
+ci budget: 3.88 MB -> 3.75 MB        restored, with both moves documented
+```
+
+The parser is pinned by
+`crates/hikari-core/tests/dimensions_differential.rs`, which asserts the same
+answer as `image::load_from_memory` for every supported format at several
+sizes, errors on non-image and malformed input, and never panics on truncated
+or mutated bytes. **The test caught a real bug in the new parser on its first
+run**: the JPEG frame header carries height before width, and the crate's
+tuple is (w, h), so a 13x17 file came back 17x13. A hand-rolled parser without
+that test is not a one-liner of risk; it is the exact shape of code that ships
+a swapped dimension silently.
+
+### Added — a performance gate that actually runs
+
+The bench-gate job was removed in v0.21.10 because its runner label did not
+exist, which also removed any automatic check that a merge had not made the
+renderer slower. `.github/workflows/perf.yml` replaces it on ordinary GitHub
+runners, with the limits stated rather than hidden: two benchmark passes,
+best-of-two medians per key against a committed baseline
+(`.github/perf-baseline.json`), keys under 20 µs excluded as unmeasurable on a
+virtual machine, and a failure only when a stage runs at ≥ 2× and *persists
+across both passes*. It is a catastrophic-regression catcher (the 300× class),
+not a five-percent drift detector; `scripts/perf/gate.mjs` documents every
+threshold in its header. The baseline refreshes itself on main with
+`[skip ci]` commits so the gate cannot trigger itself.
+
+### Added — fuzz coverage for the JS surfaces
+
+The first two fuzz targets never touched what web callers actually feed the
+library. Two targets close that:
+
+- **`tree_json`** — the `serde_json` deserialisation into `Node` that every
+  WASM and Node render call performs first, followed by layout and the SVG
+  path with every field at its default. Malformed numbers, negative sizes and
+  thousand-deep nesting are all reachable from untrusted JSON alone.
+- **`fonts`** — the `register_font(name, bytes)` entry point, which sends
+  caller bytes through `read-fonts` and the face cache. A successful parse is
+  then shaped and rendered, so the registration path is exercised end to end.
+
+CI's fuzz matrix is four targets now, and the local gate command in the README
+builds them all.
+
+### Fixed — the documentation site
+
+- The site's own head was missing what any production site has: favicon,
+  canonical URLs, Open Graph and Twitter cards (whose image is the engine's
+  own output), and theme-color. Every page now has them.
+- Typography was Inter by name and the system UI font in practice — Inter
+  being uninstalled on most machines. Bricolage Grotesque (variable,
+  200–800) and JetBrains Mono (variable) are self-hosted via CDN with the
+  old stacks as fallback. Display weight goes to 800 so hierarchy comes from
+  real size-and-weight jumps, not 600-vs-500 nudges.
+- The hero emphasis uses gradient-through-glyphs — the same effect the
+  engine itself demonstrates.
+- Command blocks have working Copy buttons; install pages keep their labels
+  and gain the affordance.
+- `--text-faint` was below 4.5:1 at small sizes; raised until it holds ~5.4:1.
+- Keyboard users get a skip link; nav shows the current page with
+  `aria-current="page"` in more than colour.
+- benchmarks.html had drifted from BENCHMARKS.md — it still said cold start
+  was dominated by glyph rasterisation, that banding was the suspected cause
+  of card size (long since examined and closed), and that a workload corpus
+  would be nice to have. It now carries the v0.21.11 workload numbers, the
+  format-choice table, and corrections entries in the same spirit as the
+  rest of the project: the story of what was wrong, next to what is right.
+
+### Also
+
+- crates.io releases: the tag workflow published npm only, so crates.io
+  version drift appeared the moment a release shipped. It now publishes every
+  workspace member in dependency order after the npm publish, treating
+  "already exists" as the normal state of a rerun. Publish is skipped with a
+  loud warning until `CARGO_REGISTRY_TOKEN` is configured, so a missing
+  secret cannot fail a release silently.
+
 ## v0.21.11 — workload benchmarks, and what they immediately found
 
 ### Fixed — layout fully decoded every image

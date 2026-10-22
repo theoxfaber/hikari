@@ -200,8 +200,18 @@ The fix would be a small hand-rolled header parse -- PNG IHDR at offset 16,
 JPEG SOFn, GIF logical screen descriptor, WebP VP8X -- differentially tested
 against `load_from_memory` for every supported format so the hand-rolled part
 can never silently disagree with the real decoder. That test is what makes it
-safe rather than a leap of faith. Not done here; it is the first thing to try
-before the budget is raised again.
+safe rather than a leap of faith.
+
+**Resolution, v0.21.12: done, and the prediction held.** The hand-rolled parser
+ recovered 185,355 bytes of the 185,709 (3,879,541 -> 3,694,186), and the CI
+budget went back to 3.75 MB with the second move documented where the first had
+been. The differential test caught a real defect on its first run -- the JPEG
+frame header scanner had height and width in production order but the crate's
+tuple is (w, h), and a 13x17 file came back swapped -- which is precisely the
+class of bug that "hand-rolled parser with no differential test" ships quietly.
+For input that merely truncates or mutates the header, the contract is
+"Ok or Err, never a panic", and it is pinned by a seeded mutation loop that
+runs in ordinary `cargo test`.
 
 ### What the image workload found
 

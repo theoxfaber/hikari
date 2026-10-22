@@ -1468,15 +1468,228 @@ pub enum Media {
 /// never drawn any differently. Layout was doing the painting's work and the
 /// paint stage was doing it again.
 ///
-/// `into_dimensions` reads the header and stops. Errors are reported the same
-/// way, so a malformed image still fails rather than silently laying out at
-/// some fallback size.
+/// This reads the header and stops; [peek_image_dimensions] says how and what
+/// it costs. A malformed image still errors rather than silently laying out
+/// at some fallback size.
 pub fn image_dimensions(bytes: &[u8]) -> Result<(u32, u32), Error> {
-    image::ImageReader::new(std::io::Cursor::new(bytes))
-        .with_guessed_format()
-        .map_err(|e| Error::Asset(e.to_string()))?
-        .into_dimensions()
-        .map_err(|e| Error::Asset(e.to_string()))
+    peek_image_dimensions(bytes).map_err(|e| Error::Asset(format!("image header: {e}")))
+}
+
+/// A failure to read a container header. Private: `image_dimensions` turns
+/// them into the public error type, and callers only ever see that.
+enum HeaderError {
+    Truncated { need: usize, have: usize },
+    Unrecognised,
+    Malformed(&'static str),
+}
+
+impl std::fmt::Display for HeaderError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HeaderError::Truncated { need, have } => {
+                write!(f, "needs {need} bytes for the header, have {have}")
+            }
+            HeaderError::Unrecognised => {
+                write!(f, "not a supported container (png, jpeg, gif, webp)")
+            }
+            HeaderError::Malformed(why) => write!(f, "{why}"),
+        }
+    }
+}
+
+fn u16be(b: &[u8]) -> u16 {
+    u16::from_be_bytes([b[0], b[1]])
+}
+
+fn u32be(b: &[u8]) -> u32 {
+    u32::from_be_bytes([b[0], b[1], b[2], b[3]])
+}
+
+fn u16le(b: &[u8]) -> u16 {
+    u16::from_le_bytes([b[0], b[1]])
+}
+
+fn u24le(b: &[u8]) -> u32 {
+    u32::from(b[0]) | u32::from(b[1]) << 8 | u32::from(b[2]) << 16
+}
+
+/// Intrinsic dimensions straight from the container header.
+///
+/// Every format this crate decodes (png, jpeg, gif, webp) records its pixel
+/// size in a fixed place in the first bytes of the file; all four are read
+/// here. Two properties matter and the tests pin both:
+///
+/// 1. **Same answer as the decoder.** For every valid file, what this returns
+///    must equal what `image::load_from_memory` reports for the same file.
+///    The differential test covers all four formats at several sizes,
+///    including 1x1 and non-round numbers. A header parser is the kind of
+///    code that drifts silently; agreement with the real decoder is what
+///    keeps it pinned to reality.
+/// 2. **Failure only, never a lie.** Insufficient or mutated input returns an
+///    error. The old path gated layout on a full successful decode, so an
+///    image whose header parse succeeds but whose body is corrupt would have
+///    failed later in paint anyway; the header path moves that failure from
+///    paint to layout, which is where a size question belongs. The fuzz
+///    corpus asserts every mutated or truncated input yields `Ok` or `Err`
+///    and never a panic.
+///
+/// This path deliberately does not go through `image::ImageReader`. That
+/// reader is generic over `R: Read`, so using it here monomorphises a second
+/// copy of every format decoder next to the one the raster backend already
+/// carries via `load_from_memory` -- +186 KB of wasm for zero new capability,
+/// which is what paid for this function to exist.
+fn peek_image_dimensions(b: &[u8]) -> Result<(u32, u32), HeaderError> {
+    const PNG: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+
+    if b.len() >= 8 && b[..8] == PNG {
+        if b.len() < 24 {
+            return Err(HeaderError::Truncated {
+                need: 24,
+                have: b.len(),
+            });
+        }
+        // IHDR must be the first chunk: four bytes of length, then the name.
+        if &b[12..16] != b"IHDR" {
+            return Err(HeaderError::Malformed("first chunk is not IHDR"));
+        }
+        let (w, h) = (u32be(&b[16..20]), u32be(&b[20..24]));
+        if w == 0 || h == 0 {
+            return Err(HeaderError::Malformed("PNG IHDR declares a zero dimension"));
+        }
+        return Ok((w, h));
+    }
+
+    // GIF: 6-byte signature, then the logical screen descriptor -- two
+    // little-endian u16s, wide then high.
+    if b.len() >= 10 && (&b[..4] == b"GIF8") && (b[4] == b'7' || b[4] == b'9') && b[5] == b'a' {
+        let (w, h) = (u32::from(u16le(&b[6..8])), u32::from(u16le(&b[8..10])));
+        if w == 0 || h == 0 {
+            return Err(HeaderError::Malformed(
+                "GIF logical screen declares a zero dimension",
+            ));
+        }
+        return Ok((w, h));
+    }
+
+    // WebP: RIFF container with a WEBP type, then a chunk describing the
+    // stream. Shapes differ by chunk: VP8X (extended, canvas at 24),
+    // VP8 (lossy keyframe, sync code then 14-bit sizes), VP8L (lossless,
+    // packed 14-bit sizes after the 0x2F signature).
+    if b.len() >= 12 && &b[..4] == b"RIFF" && &b[8..12] == b"WEBP" {
+        if b.len() < 16 {
+            return Err(HeaderError::Truncated {
+                need: 16,
+                have: b.len(),
+            });
+        }
+        let chunk = &b[12..16];
+        match (chunk, b.len()) {
+            (b"VP8X", _) => {
+                if b.len() < 30 {
+                    return Err(HeaderError::Truncated {
+                        need: 30,
+                        have: b.len(),
+                    });
+                }
+                // Canvas size is stored as value-one, 24 bits each.
+                let (w, h) = (u24le(&b[24..27]) + 1, u24le(&b[27..30]) + 1);
+                return Ok((w, h));
+            }
+            (b"VP8 ", n) => {
+                if n < 30 {
+                    return Err(HeaderError::Truncated { need: 30, have: n });
+                }
+                if b[23..26] != [0x9D, 0x01, 0x2A] {
+                    return Err(HeaderError::Malformed("VP8 chunk missing the start code"));
+                }
+                // Width and height are the low 14 bits of each u16.
+                let (w, h) = (
+                    u32::from(u16le(&b[26..28]) & 0x3FFF),
+                    u32::from(u16le(&b[28..30]) & 0x3FFF),
+                );
+                if w == 0 || h == 0 {
+                    return Err(HeaderError::Malformed(
+                        "VP8 keyframe declares a zero dimension",
+                    ));
+                }
+                return Ok((w, h));
+            }
+            (b"VP8L", n) => {
+                if n < 25 {
+                    return Err(HeaderError::Truncated { need: 25, have: n });
+                }
+                if b[20] != 0x2F {
+                    return Err(HeaderError::Malformed(
+                        "VP8L chunk missing its signature byte",
+                    ));
+                }
+                let bits = u32::from_le_bytes([b[21], b[22], b[23], b[24]]);
+                let (w, h) = ((bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1);
+                return Ok((w, h));
+            }
+            _ => return Err(HeaderError::Malformed("unrecognised WebP chunk")),
+        }
+    }
+
+    // JPEG: scan the segment stream for a frame header. Every segment is a
+    // marker plus a big-endian length; the frame markers are the SOFn family,
+    // which carry height then width just after the sample precision byte.
+    if b.len() >= 4 && b[0] == 0xFF && b[1] == 0xD8 {
+        let mut i = 2;
+        while i + 4 <= b.len() {
+            // All the markers we skip carry a two-byte length after the
+            // marker itself; standalone markers (RST*, TEM) are legal JPEG
+            // but never precede a frame header, so seeing one means the
+            // stream is not what we can parse.
+            if b[i] != 0xFF || b[i + 1] == 0x00 {
+                break;
+            }
+            let marker = b[i + 1];
+            if marker == 0xD8 || (0xD0..=0xD7).contains(&marker) || marker == 0x01 {
+                i += 2;
+                continue;
+            }
+            // 0xFFD9 is end of image; a frame header cannot follow it.
+            if marker == 0xD9 || marker == 0xDA {
+                break;
+            }
+            let seg_len = usize::from(u16be(&b[i + 2..i + 4]));
+            if seg_len < 2 {
+                break;
+            }
+            let has_components =
+                (0xC0..=0xCF).contains(&marker) && !matches!(marker, 0xC4 | 0xC8 | 0xCC);
+            if has_components {
+                // Frame header: marker(2) len(2) precision(1) h(2) w(2) --
+                // height comes first in the file, and the tuple in this
+                // crate is (w, h). The differential test caught the swap on
+                // the first run of this code; a hand-rolled parser that is
+                // not tested against the real decoder will not catch this.
+                if i + 9 > b.len() {
+                    return Err(HeaderError::Truncated {
+                        need: i + 9,
+                        have: b.len(),
+                    });
+                }
+                let (h, w) = (
+                    u32::from(u16be(&b[i + 5..i + 7])),
+                    u32::from(u16be(&b[i + 7..i + 9])),
+                );
+                if h == 0 || w == 0 {
+                    return Err(HeaderError::Malformed(
+                        "JPEG frame header declares a zero dimension",
+                    ));
+                }
+                return Ok((w, h));
+            }
+            i += 2 + seg_len;
+        }
+        return Err(HeaderError::Malformed(
+            "no frame header in the segment stream",
+        ));
+    }
+
+    Err(HeaderError::Unrecognised)
 }
 
 /// Compute flex layout for `tree` inside `viewport_w` x `viewport_h`.

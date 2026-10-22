@@ -5,24 +5,47 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Benchmarks — Hikari</title>
 <meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0a0e1a">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="canonical" href="https://theoxfaber.github.io/hikari/benchmarks.html">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/bricolage-grotesque@5/index.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/jetbrains-mono@5/index.css">
+<!-- Card image is the engine's own output, which is the point of the product.
+     og:image wants a file that exists at that exact URL, so the root render is
+     copied into docs/img on site builds rather than linked from ../.. -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="hikari">
+<meta property="og:title" content="Hikari — Benchmarks">
+<meta property="og:description" content="Measured numbers for layout, paint and encode, with the methodology, the machine, and the claims that have been retracted.">
+<meta property="og:url" content="https://theoxfaber.github.io/hikari/benchmarks.html">
+<meta property="og:image" content="https://theoxfaber.github.io/hikari/img/card.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Hikari — Benchmarks">
+<meta name="twitter:description" content="Measured numbers for layout, paint and encode, with the methodology, the machine, and the claims that have been retracted.">
+<meta name="twitter:image" content="https://theoxfaber.github.io/hikari/img/card.png">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
+<a class="skip-link" href="#main">Skip to content</a>
+
 <header class="nav" id="nav">
   <div class="page nav__inner">
     <a class="nav__brand" href="index.html"><span class="nav__mark" aria-hidden="true"></span> hikari</a>
-    <nav class="nav__links" aria-label="Primary">
-      <a class="nav__link" href="install.html" data-optional>Install</a>
-      <a class="nav__link" href="api.html" data-optional>API</a>
-      <a class="nav__link" href="benchmarks.html" aria-current="page">Benchmarks</a>
-      <a class="nav__link" href="licence.html" data-optional>Licence</a>
-      <a class="nav__link" href="playground.html">Playground</a>
-    </nav>
+      <nav class="nav__links" aria-label="Primary">
+        <a class="nav__link" href="install.html" data-optional>Install</a>
+        <a class="nav__link" href="api.html" data-optional>API</a>
+        <a class="nav__link" href="benchmarks.html" aria-current="page">Benchmarks</a>
+        <a class="nav__link" href="licence.html" data-optional>Licence</a>
+        <a class="nav__link" href="playground.html">Playground</a>
+      </nav>
   </div>
 </header>
 
-<main>
+<main id="main">
   <section class="section">
     <div class="page" style="max-width:860px">
       <p class="eyebrow">Measurement</p>
@@ -32,6 +55,11 @@
         (<code>lto = true</code>, <code>codegen-units = 1</code>). Reference
         card: 1200×630, gradient background, two text runs, one wrapping.
         Reproduce with <code>cargo bench -p hikari-rs --bench render</code>.
+        CI additionally runs a perf gate on every merge to main: two
+        benchmark passes, best-of-two medians against a committed baseline, and
+        a merge that makes a measured stage ≥2× slower fails — see
+        <code>.github/workflows/perf.yml</code> and
+        <code>scripts/perf/gate.mjs</code>.
       </p>
     </div>
   </section>
@@ -57,15 +85,83 @@
         </div>
       </div>
       <p class="prose" style="margin-top:var(--s-5)">
-        Cold start is dominated by first-touch font rasterization, which is what
-        the build-time subset and the glyph bitmap cache exist to reduce.
+        <strong>Corrections are part of the data.</strong> This page used to say
+        cold start was "dominated by first-touch font rasterization".
+        Measured, it is not: first paint runs 3.19 ms against 2.26 ms warm, so
+        glyph rasterisation is roughly 0.9 ms of a ~10 ms one-time cost,
+        pre-warming the cache was rejected as optimising the smaller half, and
+        the claim is retracted in the corrections log below.
       </p>
     </div>
   </section>
 
   <section class="section">
     <div class="page" style="max-width:860px">
-      <p class="eyebrow">Output size</p>
+      <p class="eyebrow">Workloads</p>
+      <h2>Three shapes, not one card</h2>
+      <p class="prose" style="margin-top:var(--s-4)">
+        The card benchmarks measure fill cost, which says little about what
+        people actually render. These three stress different stages and report
+        each stage separately, so the split can move between workloads. Same
+        machine, 1200×630, criterion 95% CI — reproduce with
+        <code>cargo bench -p hikari-rs --bench render</code>.
+      </p>
+      <div class="table-wrap" style="margin-top:var(--s-5)">
+        <table>
+          <thead>
+            <tr><th>Workload</th><th class="num">Layout</th><th class="num">Paint → RGBA</th><th class="num">Encode PNG</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Text-dense — 40 sections, 80 runs</td><td class="num">0.751 ms</td><td class="num">4.238 ms</td><td class="num">5.221 ms</td></tr>
+            <tr><td>Images — 12 decoded PNGs</td><td class="num">0.013 ms</td><td class="num">8.901 ms</td><td class="num">12.182 ms</td></tr>
+            <tr><td>Document — 150 rows</td><td class="num">0.442 ms</td><td class="num">2.536 ms</td><td class="num">3.624 ms</td></tr>
+            <tr><td><em>Reference card, for contrast</em></td><td class="num"><em>0.004 ms</em></td><td class="num"><em>1.821 ms</em></td><td class="num"><em>3.532 ms</em></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="prose" style="margin-top:var(--s-5)">
+        Reading the shares rather than the totals: encode is 40–56% everywhere
+        and is never a constant; layout is 0.4% on a card and 0.1% on an image
+        card. And this section exists because adding the image workload
+        <em>immediately</em> found a bug nothing else ever could — the next
+        correction entry tells that story.
+      </p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="page" style="max-width:860px">
+      <p class="eyebrow">Choosing an output format</p>
+      <h2>Encoding is a decision, and it matters more than any of the
+        timings above</h2>
+      <div class="table-wrap" style="margin-top:var(--s-5)">
+        <table>
+          <thead>
+            <tr><th>Path</th><th class="num">Time</th><th class="num">Flat card</th><th class="num">12 image tiles</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>render_svg</code> — serialises, rasterises nothing</td><td class="num">0.005 ms</td><td class="num">309 B</td><td class="num">n/a</td></tr>
+            <tr><td><code>render_placed_to_rgba</code> — stops at the pixels</td><td class="num">1.89 ms</td><td class="num">—</td><td class="num">—</td></tr>
+            <tr><td><code>render_webp</code></td><td class="num">~3.5 ms</td><td class="num">8,662 B</td><td class="num">178,902 B</td></tr>
+            <tr><td><code>render_png</code></td><td class="num">~3.8 ms</td><td class="num">12,238 B</td><td class="num">28,858 B</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="prose" style="margin-top:var(--s-5)">
+        Three things follow, and none of them is "always use WebP". If the
+        consumer takes vectors, <code>render_svg</code> is 780× faster because it
+        rasterises nothing. If it needs pixels and the content is flat UI work,
+        lossless WebP wins ~29% on size — and on photographic or
+        high-frequency content it loses by 6.2×, because PNG's predictive
+        filters have a different enemy than WebP's palette. There is no default
+        that is right; it is a measurement on your own content.
+      </p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="page" style="max-width:860px">
+      <p class="eyebrow">Artifact sizes</p>
       <h2>What the engine produces</h2>
       <div class="table-wrap" style="margin-top:var(--s-5)">
         <table>
@@ -199,6 +295,29 @@
             Corrected the determinism digests, for the reason above.
           </div>
         </div>
+        <div class="deflist__row">
+          <div class="deflist__key">v0.21.11 — 300× layout cost</div>
+          <div class="deflist__val">
+            <code>image_dimensions</code> fully decoded every image to read
+            dimensions that live in the header. Layout went 3.969 ms →
+            0.013 ms and paint → 8.9 ms once the second decode went away. It
+            was never found by any test or corpus case, because nothing was
+            wrong with the output — it is a performance defect that looks
+            exactly like a non-defect. Found by the image workload bench on
+            the first run it existed.
+          </div>
+        </div>
+        <div class="deflist__row">
+          <div class="deflist__key">v0.21.11 — three retractions</div>
+          <div class="deflist__val">
+            "51% of render is zlib" → 40–56% by workload.
+            "WebP is a 29% size win" → 29% smaller on flat cards and 6.2×
+            larger on image tiles. "Cold start is dominated by glyph
+            rasterisation" → ~0.9 ms of 10.4 ms. All three were the same
+            mistake in different clothes: measuring one thing and writing the
+            answer down as though it were general.
+          </div>
+        </div>
       </div>
     </div>
   </section>
@@ -211,23 +330,29 @@
         <div class="deflist__row">
           <div class="deflist__key">Cold start</div>
           <div class="deflist__val">
-            14.3 ms against 3.69 ms warm. A smaller embedded font or a glyph
-            cache shared across processes would help; neither is done.
+            Roughly a tenth of it is glyph rasterisation, measured; the rest is
+            one-time font parse, pixmap allocation and encode. Pre-warming was
+            measured and rejected. <em>Closed as not worth doing; the reasoning
+            stays on record.</em>
           </div>
         </div>
         <div class="deflist__row">
           <div class="deflist__key">Card output size</div>
           <div class="deflist__val">
-            57,931 bytes is larger than the encoder curve suggests for a mostly
-            flat image. Gradient banding is the suspected cause and it is
-            unmeasured.
+            Examined in v0.21.10: the banding hypothesis was wrong. The
+            gradient is constant down each column and its largest step is 1,
+            so 57 KB is what a smooth gradient costs to compress losslessly,
+            with about 3.7% of encoder headroom not worth taking.
+            <em>Answered; closed.</em>
           </div>
         </div>
         <div class="deflist__row">
-          <div class="deflist__key">Coverage</div>
+          <div class="deflist__key">Workload coverage</div>
           <div class="deflist__val">
-            One machine, one card. A real corpus would separate text-heavy,
-            image-heavy and document workloads.
+            <em>Resolved in v0.21.11</em> — the text-dense, image and document
+            workloads above exist now, and their first run found the 300×
+            layout defect. What remains open: benchmarking on a second machine
+            class (Linux x86_64), which is where the CI perf gate runs.
           </div>
         </div>
       </div>
@@ -241,7 +366,7 @@
 
 <footer class="footer">
   <div class="page footer__inner">
-    <p class="footer__note">Hikari — boring dependencies, published numbers, stated limitations.</p>
+    <p class="footer__note">Hikari v0.21.12 — boring dependencies, published numbers, stated limitations.</p>
     <nav class="footer__links" aria-label="Footer">
       <a href="index.html">Home</a>
       <a href="install.html">Install</a>

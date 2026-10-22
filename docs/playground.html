@@ -5,6 +5,27 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Playground — Hikari</title>
 <meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0a0e1a">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="canonical" href="https://theoxfaber.github.io/hikari/playground.html">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/bricolage-grotesque@5/index.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/jetbrains-mono@5/index.css">
+<!-- Card image is the engine's own output, which is the point of the product.
+     og:image wants a file that exists at that exact URL, so the root render is
+     copied into docs/img on site builds rather than linked from ../.. -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="hikari">
+<meta property="og:title" content="Hikari — Playground">
+<meta property="og:description" content="Render PNG and SVG entirely in the browser with the WASM build. No account, nothing uploaded.">
+<meta property="og:url" content="https://theoxfaber.github.io/hikari/playground.html">
+<meta property="og:image" content="https://theoxfaber.github.io/hikari/img/card.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Hikari — Playground">
+<meta name="twitter:description" content="Render PNG and SVG entirely in the browser with the WASM build. No account, nothing uploaded.">
+<meta name="twitter:image" content="https://theoxfaber.github.io/hikari/img/card.png">
 <link rel="stylesheet" href="style.css">
 <style>
   /* Playground-only layout. The design system owns everything else; these three
@@ -39,20 +60,22 @@
 </head>
 <body>
 
+<a class="skip-link" href="#main">Skip to content</a>
+
 <header class="nav" id="nav">
   <div class="page nav__inner">
     <a class="nav__brand" href="index.html"><span class="nav__mark" aria-hidden="true"></span> hikari</a>
-    <nav class="nav__links" aria-label="Primary">
-      <a class="nav__link" href="install.html" data-optional>Install</a>
-      <a class="nav__link" href="api.html" data-optional>API</a>
-      <a class="nav__link" href="benchmarks.html">Benchmarks</a>
-      <a class="nav__link" href="licence.html" data-optional>Licence</a>
-      <a class="nav__link" href="playground.html" aria-current="page">Playground</a>
-    </nav>
+      <nav class="nav__links" aria-label="Primary">
+        <a class="nav__link" href="install.html" data-optional>Install</a>
+        <a class="nav__link" href="api.html" data-optional>API</a>
+        <a class="nav__link" href="benchmarks.html">Benchmarks</a>
+        <a class="nav__link" href="licence.html" data-optional>Licence</a>
+        <a class="nav__link" href="playground.html" aria-current="page">Playground</a>
+      </nav>
   </div>
 </header>
 
-<main>
+<main id="main">
   <section class="section">
     <div class="page" style="max-width:960px">
       <p class="eyebrow">Live</p>
@@ -119,7 +142,7 @@
 
 <footer class="footer">
   <div class="page footer__inner">
-    <p class="footer__note">Hikari — boring dependencies, published numbers, stated limitations.</p>
+    <p class="footer__note">Hikari v0.21.12 — boring dependencies, published numbers, stated limitations.</p>
     <nav class="footer__links" aria-label="Footer">
       <a href="index.html">Home</a>
       <a href="install.html">Install</a>
