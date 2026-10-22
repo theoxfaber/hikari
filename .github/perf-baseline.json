@@ -1,0 +1,17 @@
+{
+  "banner_1200x630/layout": 4373.054326075159,
+  "banner_1200x630/paint_to_rgba": 3788822.192307692,
+  "banner_1200x630/png": 3695010.8828125,
+  "banner_1200x630_first_and_warm": 3720202.6347222226,
+  "text_card_1200x630/png": 3740768.465277778,
+  "text_card_1200x630/svg": 19362.086120239706,
+  "workload_document/encode_png": 3863136.1596638653,
+  "workload_document/layout": 519162.9300595238,
+  "workload_document/paint_to_rgba": 3606554.6875,
+  "workload_images/encode_png": 11048075.25,
+  "workload_images/layout": 4906.971103784263,
+  "workload_images/paint_to_rgba": 8778338.006944444,
+  "workload_text_dense/encode_png": 5293257.066666666,
+  "workload_text_dense/layout": 757406.9160401002,
+  "workload_text_dense/paint_to_rgba": 6130039.261904762
+}
