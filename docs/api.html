@@ -48,7 +48,7 @@
 <main id="main">
   <section class="section">
     <div class="page" style="max-width:860px">
-      <p class="eyebrow">Reference</p>
+      <p class="eyebrow" data-scramble>Reference</p>
       <h1 style="font-size:var(--step-4)">API</h1>
       <p class="lede" style="margin-top:var(--s-4)">
         Everything renders from a node tree. There are three node kinds —
@@ -79,7 +79,7 @@ std::fs::write("og.png", render_png(&amp;tree, 1200, 630)?)?;</code></pre>
 
   <section class="section">
     <div class="page" style="max-width:860px">
-      <p class="eyebrow">Style</p>
+      <p class="eyebrow" data-scramble>Style</p>
       <h2>Builder surface</h2>
       <div class="table-wrap" style="margin-top:var(--s-5)">
         <table>
@@ -108,7 +108,7 @@ std::fs::write("og.png", render_png(&amp;tree, 1200, 630)?)?;</code></pre>
 
   <section class="section">
     <div class="page" style="max-width:860px">
-      <p class="eyebrow">Fonts</p>
+      <p class="eyebrow" data-scramble>Fonts</p>
       <h2>Using your own typeface</h2>
       <p class="prose" style="margin-top:var(--s-4)">
         Register once, then set the id on any node. It is inherited by
@@ -134,7 +134,7 @@ let tree = Node::container(
 
   <section class="section">
     <div class="page" style="max-width:860px">
-      <p class="eyebrow">Text helpers</p>
+      <p class="eyebrow" data-scramble>Text helpers</p>
       <h2>Headline typography</h2>
       <p class="prose" style="margin-top:var(--s-4)">
         Pure functions over shaped text. Layout and paint call the same code, so
@@ -155,7 +155,7 @@ let (w, h) = measure_text(text, px, BUILTIN_FONT);</code></pre>
 
   <section class="section">
     <div class="page" style="max-width:860px">
-      <p class="eyebrow">Documents and motion</p>
+      <p class="eyebrow" data-scramble>Documents and motion</p>
       <h2>PDF and animation</h2>
       <p class="prose" style="margin-top:var(--s-4)">
         Both are free and take no key material. <code>render_pdf_with</code>
@@ -188,7 +188,7 @@ let gif = render_animation_gif(&amp;[(frame_a, 500), (frame_b, 500)], 480, 240)?
   </section>
   <section class="section">
     <div class="page" style="max-width:860px">
-      <p class="eyebrow">Front end</p>
+      <p class="eyebrow" data-scramble>Front end</p>
       <h2>Write it in HTML and CSS</h2>
       <p class="prose" style="margin-top:var(--s-4)">
         A card does not have to be a hand-built node tree.
@@ -251,12 +251,7 @@ let png = hikari::render_png(&amp;tree, 1200, 630)?;</code></pre>
   </div>
 </footer>
 
-<script>
-  var nav = document.getElementById('nav');
-  var onScroll = function () { nav.dataset.stuck = String(window.scrollY > 8); };
-  onScroll();
-  window.addEventListener('scroll', onScroll, { passive: true });
-</script>
+<script src="motion.js" defer></script>
 
 </body>
 </html>

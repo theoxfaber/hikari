@@ -48,7 +48,7 @@
 <main id="main">
   <section class="section">
     <div class="page" style="max-width:820px">
-      <p class="eyebrow">Getting started</p>
+      <p class="eyebrow" data-scramble>Getting started</p>
       <h1 style="font-size:var(--step-4)">Install</h1>
       <p class="lede" style="margin-top:var(--s-4)">
         No system dependencies. The only runtime requirement for correct text is
@@ -86,7 +86,7 @@ cargo add hikari-rs-core hikari-rs-pdf</code></pre>
 
   <section class="section">
     <div class="page" style="max-width:820px">
-      <p class="eyebrow">First render</p>
+      <p class="eyebrow" data-scramble>First render</p>
       <h2>From Node.js</h2>
       <div class="code-block" style="margin-top:var(--s-5)">
         <span class="code-block__label">javascript</span>
@@ -113,7 +113,7 @@ require('node:fs').writeFileSync('og.png', hikari.renderPngSync(tree, 1200, 630)
 
   <section class="section">
     <div class="page" style="max-width:820px">
-      <p class="eyebrow">Browser and edge</p>
+      <p class="eyebrow" data-scramble>Browser and edge</p>
       <h2>WebAssembly</h2>
       <div class="code-block" style="margin-top:var(--s-5)">
         <span class="code-block__label">javascript</span>
@@ -134,7 +134,7 @@ const png = render_png(JSON.stringify(tree), 1200, 630);   // Uint8Array</code><
 
   <section class="section">
     <div class="page" style="max-width:820px">
-      <p class="eyebrow">Working on the engine</p>
+      <p class="eyebrow" data-scramble>Working on the engine</p>
       <h2>From source</h2>
       <div class="code-block" style="margin-top:var(--s-5)">
         <span class="code-block__label">shell</span>
@@ -153,7 +153,7 @@ node npm/test.mjs</code></pre>
 
   <section class="section">
     <div class="page" style="max-width:820px">
-      <p class="eyebrow">Offline</p>
+      <p class="eyebrow" data-scramble>Offline</p>
       <h2>No keys, no network</h2>
       <p class="prose" style="margin-top:var(--s-4)">
         There is nothing to configure. Every backend — stills, animation and PDF
@@ -178,42 +178,7 @@ node npm/test.mjs</code></pre>
   </div>
 </footer>
 
-<script>
-  var nav = document.getElementById('nav');
-  var onScroll = function () { nav.dataset.stuck = String(window.scrollY > 8); };
-  onScroll();
-  window.addEventListener('scroll', onScroll, { passive: true });
-
-  // Copy buttons on command blocks. Added by script rather than written into
-  // every block by hand, so the markup stays readable and the behaviour is
-  // one place. No clipboard API under file:// on some browsers: fall back to
-  // a silent inability, which is honest given the button says "Copy".
-  document.querySelectorAll('.code-block').forEach(function (block) {
-    var pre = block.querySelector('pre');
-    if (!pre) return;
-    var btn = document.createElement('button');
-    btn.className = 'code-block__copy';
-    btn.type = 'button';
-    btn.setAttribute('aria-label', 'Copy command to clipboard');
-    btn.textContent = 'Copy';
-    var label = block.querySelector('.code-block__label');
-    if (label) label.classList.add('code-block__label--shifted');
-    btn.addEventListener('click', function () {
-      navigator.clipboard.writeText(pre.innerText).then(function () {
-        btn.dataset.done = 'true';
-        btn.textContent = 'Copied';
-        window.setTimeout(function () {
-          btn.dataset.done = 'false';
-          btn.textContent = 'Copy';
-        }, 1600);
-      }, function () {
-        btn.textContent = 'Ctrl+C…';
-        window.setTimeout(function () { btn.textContent = 'Copy'; }, 1600);
-      });
-    });
-    block.appendChild(btn);
-  });
-</script>
+<script src="motion.js" defer></script>
 
 </body>
 </html>

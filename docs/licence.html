@@ -48,7 +48,7 @@
 <main id="main">
   <section class="section">
     <div class="page" style="max-width:820px">
-      <p class="eyebrow">Licence</p>
+      <p class="eyebrow" data-scramble>Licence</p>
       <h1 style="font-size:var(--step-4)">Free, and staying free</h1>
       <p class="lede" style="margin-top:var(--s-4)">
         Hikari is MIT or Apache-2.0. Every backend — stills, animation and PDF —
@@ -83,7 +83,7 @@
 
   <section class="section">
     <div class="page" style="max-width:820px">
-      <p class="eyebrow">What changed</p>
+      <p class="eyebrow" data-scramble>What changed</p>
       <h2>The Pro tier is gone</h2>
       <div class="prose" style="margin-top:var(--s-5)">
         <p>
@@ -108,7 +108,7 @@
 
   <section class="section">
     <div class="page" style="max-width:820px">
-      <p class="eyebrow">Terms</p>
+      <p class="eyebrow" data-scramble>Terms</p>
       <h2>MIT and Apache-2.0</h2>
       <div class="prose" style="margin-top:var(--s-5)">
         <p>
@@ -135,7 +135,7 @@
 
   <section class="section">
     <div class="page" style="max-width:820px">
-      <p class="eyebrow">If something is missing</p>
+      <p class="eyebrow" data-scramble>If something is missing</p>
       <h2>Open an issue</h2>
       <p class="prose" style="margin-top:var(--s-4)">
         A rendering gap, a shaping bug, or a feature the node tree cannot express
@@ -164,12 +164,7 @@
   </div>
 </footer>
 
-<script>
-  var nav = document.getElementById('nav');
-  var onScroll = function () { nav.dataset.stuck = String(window.scrollY > 8); };
-  onScroll();
-  window.addEventListener('scroll', onScroll, { passive: true });
-</script>
+<script src="motion.js" defer></script>
 
 </body>
 </html>

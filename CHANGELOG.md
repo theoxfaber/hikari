@@ -72,6 +72,24 @@ builds them all.
   engine itself demonstrates.
 - Command blocks have working Copy buttons; install pages keep their labels
   and gain the affordance.
+- A motion layer borrowed in vocabulary from the motion-primitives /
+  Watermelon UI school — in-view reveals, staggered groups, letter reveal,
+  text scramble on the mono eyebrows, counters that count to exactly the
+  published figure, pointer-tracked spotlight cards, one shine per button
+  hover — delivered as one dependency-free CSS layer plus one observer file
+  of the same statements, since this site has no build step and must not
+  grow a stack to move. Progressive-enhancement rules are enforced, not
+  hoped for: nothing is hidden until the script arms itself, everything
+  yields to `prefers-reduced-motion` (the nav hairline runs for these
+  visitors anyway — they lose easing, not affordance), no-JS visitors see
+  the full page, and the entrance primitives are one-shot CSS animations so
+  they cannot hijack a hover transition.
+- The playground's wasm import was broken by a path the Pages deploy cannot
+  satisfy: `./pkg/` resolved from the flat `/playground.html` to site-root
+  `/pkg/`, which does not exist, while the build step writes the bundle to
+  `docs/playground/pkg/`. The import now addresses the directory the deploy
+  actually serves, verified by loading the page and rendering through wasm
+  before the commit moved.
 - `--text-faint` was below 4.5:1 at small sizes; raised until it holds ~5.4:1.
 - Keyboard users get a skip link; nav shows the current page with
   `aria-current="page"` in more than colour.

@@ -964,21 +964,141 @@ select:focus {
 }
 
 /* ==========================================================================
-   Motion
-   One entrance, applied once per element. Everything else is a hover.
+   Motion primitives
+   One entrance per element, once. Everything else is a hover.
+   Borrowed vocabulary (in-view reveals, stagger, letter reveal, scramble,
+   counters, spotlight), hand-written in keyframes — see motion.js for the
+   arming logic and the progressive-enhancement rules.
+
+   The states here only exist under html.js-motion, which the script sets
+   after it has run: a visitor with JS off never meets a hidden element.
+   Reveals are one-shot animations, not transitions, so they cannot hijack
+   the properties that own hover states (a card's background, for instance).
    ========================================================================== */
 
-.reveal {
+html.js-motion [data-mp-variant] {
   opacity: 0;
-  transform: translateY(14px);
-  transition:
-    opacity calc(var(--slow) + 80ms) var(--ease),
-    transform calc(var(--slow) + 120ms) var(--ease-out);
 }
 
-.reveal[data-shown="true"] {
+html.js-motion [data-mp-variant="letters"],
+html.js-motion [data-mp-variant="letters"] .mp-letter {
   opacity: 1;
-  transform: none;
+}
+
+html.js-motion .mp-letter {
+  display: inline-block;
+}
+
+html.js-motion [data-mp-variant="letters"] .mp-letter {
+  opacity: 0;
+}
+
+/* Arrival. --mp-delay carries group stagger; with `both` fill the element
+   holds its first keyframe through the delay, so delayed children are
+   hidden until their turn — the stagger is real, not painted on. */
+html.js-motion [data-mp-variant="up"][data-mp-shown="true"] {
+  opacity: 1;
+  animation: mp-up calc(var(--slow) + 120ms) var(--ease-out) var(--mp-delay, 0ms) both;
+}
+
+html.js-motion [data-mp-variant="fade"][data-mp-shown="true"] {
+  opacity: 1;
+  animation: mp-fade var(--slow) var(--ease-out) var(--mp-delay, 0ms) both;
+}
+
+html.js-motion [data-mp-variant="blur"][data-mp-shown="true"] {
+  opacity: 1;
+  animation: mp-blur calc(var(--slow) + 200ms) var(--ease-out) var(--mp-delay, 0ms) both;
+}
+
+html.js-motion [data-mp-variant="scale"][data-mp-shown="true"] {
+  opacity: 1;
+  animation: mp-scale calc(var(--slow) + 160ms) var(--ease-out) var(--mp-delay, 0ms) both;
+}
+
+@keyframes mp-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes mp-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes mp-blur {
+  from { opacity: 0; transform: translateY(6px); filter: blur(10px); }
+  to   { opacity: 1; transform: none; filter: none; }
+}
+
+@keyframes mp-scale {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Letters resolve one at a time, left to right, out of a soft blur. The
+   container is visible; only the glyphs move. */
+html.js-motion [data-mp-variant="letters"][data-mp-shown="true"] .mp-letter {
+  animation: mp-letter 480ms var(--ease-out) calc(140ms + var(--mp-i, 0) * 18ms) both;
+}
+
+@keyframes mp-letter {
+  from { opacity: 0; transform: translateY(0.55em); filter: blur(4px); }
+  to   { opacity: 1; transform: none; filter: none; }
+}
+
+/* Spotlight cards: a light that follows the pointer across the surface.
+   Painted above the card's own background but below its content (z-index -1),
+   and keyed off --mx/--my that only pointer events can set. Inside a hover
+   media query, so nothing sits waiting for a pointer that never arrives. */
+@media (hover: hover) and (pointer: fine) {
+  [data-spotlight] {
+    position: relative;
+  }
+
+  [data-spotlight]::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background:
+      radial-gradient(240px circle at var(--mx, 50%) var(--my, 50%),
+        rgba(255, 255, 255, 0.055), transparent 70%);
+    opacity: 0;
+    transition: opacity var(--fast) var(--ease);
+    pointer-events: none;
+  }
+
+  [data-spotlight]:hover::before {
+    opacity: 1;
+  }
+}
+
+/* The primary button gets one shine on entry of the pointer and none after
+   — a state event, not a looping effect. */
+.btn--primary {
+  position: relative;
+  overflow: hidden;
+}
+
+.btn--primary::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg,
+    transparent 30%, rgba(255, 255, 255, 0.22) 50%, transparent 70%);
+  transform: translateX(-130%);
+  pointer-events: none;
+}
+
+.btn--primary:hover::after {
+  animation: mp-shine 720ms var(--ease);
+}
+
+@keyframes mp-shine {
+  from { transform: translateX(-130%); }
+  to   { transform: translateX(130%); }
 }
 
 /* The system is only usable if it respects this. */
@@ -995,8 +1115,11 @@ select:focus {
     transition-duration: 0.01ms !important;
   }
 
-  .reveal {
-    opacity: 1;
-    transform: none;
+  /* If the page was armed before a mid-session policy change, nothing may
+     stay hidden: the belt under the script's own policy check. */
+  [data-mp-variant],
+  .mp-letter {
+    opacity: 1 !important;
+    animation: none !important;
   }
 }

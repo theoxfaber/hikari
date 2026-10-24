@@ -155,7 +155,11 @@
 </footer>
 
 <script type="module">
-import init, { render_png, render_svg, version } from './pkg/hikari_wasm.js';
+// The glue's path is resolved from the document URL, and the Pages deploy is
+// flat: /playground.html, so ./pkg/ would mean /pkg/ — which does not exist.
+// The build step (see the docs workflow) writes the bundle to
+// docs/playground/pkg/, so the import must address that subdirectory.
+import init, { render_png, render_svg, version } from './playground/pkg/hikari_wasm.js';
 await init();
 
 const C = (r, g, b) => ({ r, g, b, a: 255 });
@@ -237,12 +241,7 @@ $('go').onclick = () => {
 $('go').click();
 </script>
 
-<script>
-  var nav = document.getElementById('nav');
-  var onScroll = function () { nav.dataset.stuck = String(window.scrollY > 8); };
-  onScroll();
-  window.addEventListener('scroll', onScroll, { passive: true });
-</script>
+<script src="motion.js" defer></script>
 
 </body>
 </html>

@@ -48,7 +48,7 @@
 <main id="main">
   <section class="section">
     <div class="page" style="max-width:860px">
-      <p class="eyebrow">Measurement</p>
+      <p class="eyebrow" data-scramble>Measurement</p>
       <h1 style="font-size:var(--step-4)">Benchmarks</h1>
       <p class="lede" style="margin-top:var(--s-4)">
         Apple M2, macOS ARM64, rustc 1.98, release profile
@@ -66,21 +66,21 @@
 
   <section class="section--tight">
     <div class="page" style="max-width:860px">
-      <div class="figures">
+      <div class="figures" data-stagger="90">
         <div class="figure">
-          <div class="figure__value">3.69<span class="figure__unit"> ms</span></div>
+          <div class="figure__value"><span data-count="3.69">3.69</span><span class="figure__unit"> ms</span></div>
           <div class="figure__label">Warm render, full PNG</div>
         </div>
         <div class="figure">
-          <div class="figure__value">14.3<span class="figure__unit"> ms</span></div>
+          <div class="figure__value"><span data-count="14.3">14.3</span><span class="figure__unit"> ms</span></div>
           <div class="figure__label">First render in a process</div>
         </div>
         <div class="figure">
-          <div class="figure__value">0.10<span class="figure__unit"> ms</span></div>
+          <div class="figure__value"><span data-count="0.10">0.10</span><span class="figure__unit"> ms</span></div>
           <div class="figure__label">Warm layout only</div>
         </div>
         <div class="figure">
-          <div class="figure__value">3.06<span class="figure__unit"> ms</span></div>
+          <div class="figure__value"><span data-count="3.06">3.06</span><span class="figure__unit"> ms</span></div>
           <div class="figure__label">Warm paint to RGBA</div>
         </div>
       </div>
@@ -97,7 +97,7 @@
 
   <section class="section">
     <div class="page" style="max-width:860px">
-      <p class="eyebrow">Workloads</p>
+      <p class="eyebrow" data-scramble>Workloads</p>
       <h2>Three shapes, not one card</h2>
       <p class="prose" style="margin-top:var(--s-4)">
         The card benchmarks measure fill cost, which says little about what
@@ -131,7 +131,7 @@
 
   <section class="section">
     <div class="page" style="max-width:860px">
-      <p class="eyebrow">Choosing an output format</p>
+      <p class="eyebrow" data-scramble>Choosing an output format</p>
       <h2>Encoding is a decision, and it matters more than any of the
         timings above</h2>
       <div class="table-wrap" style="margin-top:var(--s-5)">
@@ -161,7 +161,7 @@
 
   <section class="section">
     <div class="page" style="max-width:860px">
-      <p class="eyebrow">Artifact sizes</p>
+      <p class="eyebrow" data-scramble>Artifact sizes</p>
       <h2>What the engine produces</h2>
       <div class="table-wrap" style="margin-top:var(--s-5)">
         <table>
@@ -181,7 +181,7 @@
 
   <section class="section">
     <div class="page" style="max-width:860px">
-      <p class="eyebrow">PNG encoder</p>
+      <p class="eyebrow" data-scramble>PNG encoder</p>
       <h2>The trade-off curve</h2>
       <p class="prose" style="margin-top:var(--s-4)">
         Encoder settings trade bytes against time. The rejected rows are recorded
@@ -227,7 +227,7 @@
 
   <section class="section">
     <div class="page" style="max-width:860px">
-      <p class="eyebrow">Determinism</p>
+      <p class="eyebrow" data-scramble>Determinism</p>
       <h2>Same bytes, every platform</h2>
       <p class="prose" style="margin-top:var(--s-4)">
         This is the property that makes golden-image testing possible for anyone
@@ -267,7 +267,7 @@
 
   <section class="section">
     <div class="page" style="max-width:860px">
-      <p class="eyebrow">Corrections</p>
+      <p class="eyebrow" data-scramble>Corrections</p>
       <h2>Where this document has been wrong</h2>
       <p class="prose" style="margin-top:var(--s-4)">
         Kept deliberately. A benchmark document that has never been wrong has
@@ -324,7 +324,7 @@
 
   <section class="section">
     <div class="page" style="max-width:860px">
-      <p class="eyebrow">Still to improve</p>
+      <p class="eyebrow" data-scramble>Still to improve</p>
       <h2>Known weak spots</h2>
       <div class="deflist" style="margin-top:var(--s-5)">
         <div class="deflist__row">
@@ -378,12 +378,7 @@
   </div>
 </footer>
 
-<script>
-  var nav = document.getElementById('nav');
-  var onScroll = function () { nav.dataset.stuck = String(window.scrollY > 8); };
-  onScroll();
-  window.addEventListener('scroll', onScroll, { passive: true });
-</script>
+<script src="motion.js" defer></script>
 
 </body>
 </html>

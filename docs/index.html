@@ -55,7 +55,7 @@
   <section class="hero">
     <div class="page hero__grid">
       <div>
-        <h1 class="hero__title">Images from layout trees.<br><em>No browser.</em></h1>
+        <h1 class="hero__title"><span data-letters>Images from layout trees.</span><br><em data-reveal="blur" data-reveal-delay="260ms">No browser.</em></h1>
         <p class="hero__sub">
           A pure-Rust render engine. One node tree in — PNG, SVG, animated
           GIF, WebP and PDF with selectable text out. Runs natively, in Node.js,
@@ -98,7 +98,7 @@ npm i @hikari-rs/node</code></pre>
   <!-- 3. Proof: measured, with the machine named. -->
   <section class="section">
     <div class="page">
-      <p class="eyebrow">Measured, not claimed</p>
+      <p class="eyebrow" data-scramble>Measured, not claimed</p>
       <h2>Numbers, and where they came from</h2>
       <p class="lede" style="margin-top:var(--s-4)">
         Apple M2, macOS ARM64, rustc 1.98, release profile. Every figure in the
@@ -106,21 +106,21 @@ npm i @hikari-rs/node</code></pre>
         ones that are unflattering.
       </p>
 
-      <div class="figures" style="margin-top:var(--s-7)">
+      <div class="figures" style="margin-top:var(--s-7)" data-stagger="90">
         <div class="figure">
-          <div class="figure__value">3.69<span class="figure__unit"> ms</span></div>
+          <div class="figure__value"><span data-count="3.69">3.69</span><span class="figure__unit"> ms</span></div>
           <div class="figure__label">Warm render, 1200×630 PNG</div>
         </div>
         <div class="figure">
-          <div class="figure__value">14.3<span class="figure__unit"> ms</span></div>
+          <div class="figure__value"><span data-count="14.3">14.3</span><span class="figure__unit"> ms</span></div>
           <div class="figure__label">First render in a process</div>
         </div>
         <div class="figure">
-          <div class="figure__value">369<span class="figure__unit"> KB</span></div>
+          <div class="figure__value"><span data-count="369">369</span><span class="figure__unit"> KB</span></div>
           <div class="figure__label">Embedded font, shaping intact</div>
         </div>
         <div class="figure">
-          <div class="figure__value">0</div>
+          <div class="figure__value"><span data-count="0">0</span></div>
           <div class="figure__label">unsafe blocks in the workspace</div>
         </div>
       </div>
@@ -136,14 +136,14 @@ npm i @hikari-rs/node</code></pre>
   <!-- 4. Capability. Real engine output, not illustrations. -->
   <section class="section">
     <div class="page">
-      <p class="eyebrow">Output</p>
+      <p class="eyebrow" data-scramble>Output</p>
       <h2>Real renders, not mockups</h2>
       <p class="lede" style="margin-top:var(--s-4)">
         Every image below was produced by the engine at build time. Nothing here
         is a design asset.
       </p>
 
-      <div class="grid grid--2" style="margin-top:var(--s-7)">
+      <div class="grid grid--2" style="margin-top:var(--s-7)" data-stagger="80">
         <figure style="margin:0">
           <div class="frame frame--flush">
             <img src="img/card.png" width="1200" height="630"
@@ -179,11 +179,11 @@ npm i @hikari-rs/node</code></pre>
   <!-- 5. What it does, and the honest boundary of it. -->
   <section class="section">
     <div class="page">
-      <p class="eyebrow">Scope</p>
+      <p class="eyebrow" data-scramble>Scope</p>
       <h2>What it does, and where it stops</h2>
 
-      <div class="grid grid--3" style="margin-top:var(--s-7)">
-        <div class="card">
+      <div class="grid grid--3" style="margin-top:var(--s-7)" data-stagger="70">
+        <div class="card" data-spotlight>
           <div class="card__title">Layout and paint</div>
           <p class="card__body">
             Flex, grid and block flow. Gradients, box shadows, rounded clips,
@@ -191,7 +191,7 @@ npm i @hikari-rs/node</code></pre>
           </p>
           <p class="card__meta">Free</p>
         </div>
-        <div class="card">
+        <div class="card" data-spotlight>
           <div class="card__title">Text</div>
           <p class="card__body">
             Real OpenType shaping: joining, kerning and ligatures. Bidi, word
@@ -199,7 +199,7 @@ npm i @hikari-rs/node</code></pre>
           </p>
           <p class="card__meta">Free</p>
         </div>
-        <div class="card">
+        <div class="card" data-spotlight>
           <div class="card__title">Documents</div>
           <p class="card__body">
             PDF with selectable text, outlines, link annotations, attachments
@@ -207,14 +207,14 @@ npm i @hikari-rs/node</code></pre>
           </p>
           <p class="card__meta">Free</p>
         </div>
-        <div class="card">
+        <div class="card" data-spotlight>
           <div class="card__title">Motion</div>
           <p class="card__body">
             Animated GIF and APNG, frames rendered in parallel.
           </p>
           <p class="card__meta">Free</p>
         </div>
-        <div class="card">
+        <div class="card" data-spotlight>
           <div class="card__title">Fonts</div>
           <p class="card__body">
             An embedded subset by default, plus caller-supplied fonts by id,
@@ -222,7 +222,7 @@ npm i @hikari-rs/node</code></pre>
           </p>
           <p class="card__meta">Free</p>
         </div>
-        <div class="card">
+        <div class="card" data-spotlight>
           <div class="card__title">Runtimes</div>
           <p class="card__body">
             Rust, Node.js via napi, and WebAssembly. No C zlib anywhere in the
@@ -281,7 +281,7 @@ npm i @hikari-rs/node</code></pre>
 <footer class="footer">
   <div class="page footer__inner">
     <p class="footer__note">
-      Hikari — boring dependencies, published numbers, stated limitations.
+      Hikari v0.21.12 — boring dependencies, published numbers, stated limitations.
     </p>
     <nav class="footer__links" aria-label="Footer">
       <a href="install.html">Install</a>
@@ -294,63 +294,7 @@ npm i @hikari-rs/node</code></pre>
   </div>
 </footer>
 
-<script>
-  // The nav border appears only once content is actually underneath it.
-  var nav = document.getElementById('nav');
-  var onScroll = function () {
-    nav.dataset.stuck = String(window.scrollY > 8);
-  };
-  onScroll();
-  window.addEventListener('scroll', onScroll, { passive: true });
-
-  // One entrance, once per element. Skipped entirely under reduced motion.
-  if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches &&
-      'IntersectionObserver' in window) {
-    var io = new IntersectionObserver(function (entries) {
-      entries.forEach(function (entry) {
-        if (entry.isIntersecting) {
-          entry.target.dataset.shown = 'true';
-          io.unobserve(entry.target);
-        }
-      });
-    }, { rootMargin: '0px 0px -8% 0px' });
-
-    document.querySelectorAll('.section, .hero__grid > *').forEach(function (el) {
-      el.classList.add('reveal');
-      io.observe(el);
-    });
-  }
-
-  // Copy buttons on command blocks. Added by script rather than written into
-  // every block by hand, so the markup stays readable and the behaviour is
-  // one place. No clipboard API under file:// on some browsers: fall back to
-  // a silent inability, which is honest given the button says "Copy".
-  document.querySelectorAll('.code-block').forEach(function (block) {
-    var pre = block.querySelector('pre');
-    if (!pre) return;
-    var btn = document.createElement('button');
-    btn.className = 'code-block__copy';
-    btn.type = 'button';
-    btn.setAttribute('aria-label', 'Copy command to clipboard');
-    btn.textContent = 'Copy';
-    var label = block.querySelector('.code-block__label');
-    if (label) label.classList.add('code-block__label--shifted');
-    btn.addEventListener('click', function () {
-      navigator.clipboard.writeText(pre.innerText).then(function () {
-        btn.dataset.done = 'true';
-        btn.textContent = 'Copied';
-        window.setTimeout(function () {
-          btn.dataset.done = 'false';
-          btn.textContent = 'Copy';
-        }, 1600);
-      }, function () {
-        btn.textContent = 'Ctrl+C…';
-        window.setTimeout(function () { btn.textContent = 'Copy'; }, 1600);
-      });
-    });
-    block.appendChild(btn);
-  });
-</script>
+<script src="motion.js" defer></script>
 
 </body>
 </html>
