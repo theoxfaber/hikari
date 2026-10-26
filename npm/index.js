@@ -35,8 +35,15 @@ if (!targets) {
 const requireCjs = createRequire(__filename);
 let binding = null;
 const tried = [];
-for (const target of targets) {
-  const file = path.join(__dirname, `hikari-node.${target}.node`);
+for (const target of [...targets, null]) {
+  // `null` is the dev-build name: the README's manual flow and ci.yml's
+  // bindings job copy the cdylib to a bare `hikari-node.node`, which runs on
+  // the host it was built for. A published package must resolve a suffixed
+  // target first and only reaches the bare name if its install is the local
+  // dev layout.
+  const file = target === null
+    ? path.join(__dirname, 'hikari-node.node')
+    : path.join(__dirname, `hikari-node.${target}.node`);
   tried.push(path.basename(file));
   if (fs.existsSync(file)) {
     binding = requireCjs(file);

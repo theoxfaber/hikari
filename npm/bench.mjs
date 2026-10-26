@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 
 const require = createRequire(import.meta.url);
-const hk = require('./hikari-node.node');
+// Through the entry point, like the published install resolves: a bare
+// './hikari-node.node' require would only exist in a dev build, and the
+// published package ships target-suffixed files resolved by index.js.
+const hk = require('./index.js');
 
 const C = (r, g, b) => ({ r, g, b, a: 255 });
 const base = {
