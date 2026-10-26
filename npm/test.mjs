@@ -4,7 +4,12 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 
 const require = createRequire(import.meta.url);
-const hk = require('./hikari-node.node');
+// Through the entry point, not a fixed filename: the binary is renamed per
+// target in release.yml (`hikari-node.<target>.node`), so a bare
+// './hikari-node.node' require would only exist inside a dev build. Loading
+// index.js here means this suite exercises the same resolution a published
+// install does, including the per-platform mapping in it.
+const hk = require('./index.js');
 
 // `fileURLToPath`, not `URL.pathname`. On Windows `.pathname` returns
 // `/D:/a/hikari/hikari/npm/` -- a path with a leading slash in front of a drive

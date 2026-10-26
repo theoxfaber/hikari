@@ -8,6 +8,9 @@ keywords = ["rendering", "og-image", "pdf", "wasm"]
 categories = ["multimedia"]
 repository = "https://github.com/theoxfaber/hikari"
 homepage = "https://theoxfaber.github.io/hikari"
+# The workspace README is the facade's documentation; without this field the
+# crates.io page renders bare while the npm package shows it.
+readme = "../../README.md"
 
 [lib]
 name = "hikari"

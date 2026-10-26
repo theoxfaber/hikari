@@ -69,7 +69,6 @@ codebase are the unglamorous ones.
 - [Node.js](#nodejs)
 - [WebAssembly](#webassembly)
 - [Architecture](#architecture)
-- [Licence](#licence)
 - [Known limitations](#known-limitations)
 - [Roadmap](#roadmap)
 - [Development](#development)
@@ -124,7 +123,7 @@ and checks it against `crates/hikari/tests/determinism.sha256`:
 
 | | Bytes | SHA-256 |
 |---|---|---|
-| PNG | 21,649 | `ec287845…ba27993` |
+| PNG | 16,566 | `8224f7ee…3c884d3` |
 | SVG | 738 | `57c9a893…8f79137` |
 
 CI fails if the render drifts, and prints the re-bless command. This is what
@@ -134,7 +133,7 @@ output moves with the host cannot be regression-tested by anyone.
 ### The feature corpus
 
 One reference card cannot cover an engine. `cargo run --release -p hikari-rs
---example corpus` checks 16 cases — one per capability, each hashed separately,
+--example corpus` checks 23 cases — one per capability, each hashed separately,
 so a regression names the feature that moved instead of hiding in one opaque
 image. Mismatches print the byte delta, because "the hash differs" does not tell
 you whether the change was intended.
@@ -621,13 +620,13 @@ Stated plainly, because a limitations section that hedges is worse than none.
   included.
 - **No ecosystem yet.** No star history, no adopters, no battle-tested corpus.
   The determinism work exists precisely to make that corpus possible.
-- **The project is days old.** Every commit was made between 2026-09-29 and
-  2026-10-02. There are no crates.io or npm downloads, no external
+- **The project is weeks old.** Every commit was made since 2026-09-29. The
+  packages are not yet on crates.io or npm, and there are no external
   contributors and no adopters, so there is no track record to judge this by.
   The release timeline in [CHANGELOG.md](CHANGELOG.md) is a claim about what
   changed, not something derivable from history — with a history this short,
   that distinction matters, and a reviewer who counted the commits is right to
-  distrust the version numbers.
+  distrust the version numbers. The CHANGELOG says so at the top.
 
 ---
 
@@ -699,7 +698,7 @@ Ordered by what most limits the project, not by what is easiest.
       `InsetEdge` shadows built by silhouette subtraction rather than as a dark
       overlay. `Normal` is byte-identical to the pre-blend-mode path, verified
       against the determinism card and every corpus digest.
-- [x] **Golden-image corpus** — 21 cases, one per capability, in
+- [x] **Golden-image corpus** — 23 cases, one per capability, in
       `crates/hikari/tests/corpus.sha256`, diffed in CI, plus an ink assertion
       per case so a blank render cannot be blessed. Found a radial gradient that
       shipped as a flat fill because its radius was read as pixels.
@@ -736,7 +735,11 @@ Ordered by what most limits the project, not by what is easiest.
 - [x] **PDF/A-1b conformance**, behind `PdfOptions::pdfa`. Output intent with a
       generated sRGB ICC profile, XMP declaring `pdfaid:part` 1 and conformance
       B, and a content-derived trailer `/ID`. **Validated against veraPDF 1.30.3
-      at 129/129 rules and 501/501 checks**, in CI and locally.
+      at 129/129 rules** — every rule in the flavour, not a subset — in CI and
+      locally. The executed checks count (523 in the current fixture,
+      501 in the one this bullet first shipped with) moves with the document,
+      so only the rule count belongs here; the current numbers are in
+      Limitations.
 - [ ] **PDF/UA.** **Decided out of scope for 1.0**, with reasons recorded in
       Limitations. Tagged PDF is a rewrite of the content model, and WCAG
       conformance is not mechanically checkable, so it could not be verified here
@@ -774,7 +777,7 @@ benchmarks and supply chain.
 ## Development
 
 ```sh
-cargo test --workspace --exclude hikari-rs-node   # 322 tests
+cargo test --workspace --exclude hikari-rs-node   # 329 tests
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check
 cargo deny check

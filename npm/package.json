@@ -17,7 +17,7 @@
   "main": "./index.js",
   "types": "./index.d.ts",
   "files": [
-    "hikari-node.node",
+    "hikari-node.*.node",
     "index.d.ts",
     "index.js"
   ],

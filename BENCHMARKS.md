@@ -155,7 +155,7 @@ Output size
 | `og.png` (gradient banner) | 13,077 |
 | `i18n.png` (multilingual) | 29,788 |
 | `card.png` (grid + image + rounded clip) | 57,931 |
-| Determinism reference card | 21,649 |
+| Determinism reference card | 16,566 |
 
 ## Workloads
 

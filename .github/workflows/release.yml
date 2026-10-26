@@ -19,6 +19,8 @@ jobs:
             target: x86_64-unknown-linux-musl
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
           - os: windows-latest
             target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
@@ -30,12 +32,35 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm install -g @napi-rs/cli
-      - run: napi build --platform --release --target ${{ matrix.target }}
+      - name: build native binding
+        # Plain cargo over the workspace, not the napi CLI: the napi CLI wants
+        # a root `package.json` (v3) or a root `[package]` (v2), and neither
+        # exists in this repo, so the release alone was never reproducible
+        # locally. `hikari-rs-node` is a cdylib; the `.node` file a loader opens
+        # is that cdylib under another name -- the same copying the README's
+        # manual build documents.
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release -p hikari-rs-node --target ${{ matrix.target }}
+          out="target/${{ matrix.target }}/release"
+          art=""
+          for cand in libhikari_node.dylib libhikari_node.so hikari_node.dll; do
+            if [ -f "$out/$cand" ]; then art="$cand"; break; fi
+          done
+          if [ -z "$art" ]; then
+            echo "::error::no cdylib produced in $out"; ls -la "$out" | head -20; exit 1
+          fi
+          # Every leg would otherwise produce the same `hikari-node.node`, and
+          # the merged download below collapses them: seven uploads, one
+          # survivor, so the published package would ship a single platform's
+          # binary to everyone. Suffix per target; npm/index.js resolves the
+          # file from process.platform/arch at require time.
+          cp "$out/$art" npm/hikari-node.${{ matrix.target }}.node
       - uses: actions/upload-artifact@v4
         with:
           name: bindings-${{ matrix.target }}
-          path: npm/*.node
+          path: npm/hikari-node.${{ matrix.target }}.node
   publish:
     needs: build
     runs-on: ubuntu-latest

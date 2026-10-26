@@ -3,6 +3,14 @@
 All notable changes to Hikari. Versions match the workspace `version` and
 the `hikari-rs` facade crate.
 
+> **Release note.** As of 2026-10-26 no version of these crates has ever been
+> published to crates.io or npm. The sequence below is the project's internal
+> versioning, adopted to keep the workspace, the bindings and the docs site
+> consistent while the engine was being built; it does not map onto released
+> packages and the commit history only partially does. The first external
+> release will be v0.21.12, published as one version for every workspace
+> member; from that point the notes above do describe published state.
+
 ## v0.21.12 — the WASM debt paid back, a perf gate, and the site's own numbers
 
 ### Recovered — the 186 KB of WASM duplication

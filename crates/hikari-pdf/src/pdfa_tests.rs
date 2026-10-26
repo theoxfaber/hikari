@@ -8,9 +8,12 @@
 //! reading the bytes, so it is checked that way.
 //!
 //! The claim is **not** "this file passes a PDF/A validator", and no test here
-//! pretends to make it. A conformance checker would need to be run over the
-//! output; until one is, every assertion below is about structure and none is
-//! about conformance. The ICC profile tests are the sharpest version of that
+//! pretends to make it: a byte-level test cannot decide conformance, and the
+//! conformance claim is made where a checker actually runs — the CI job that
+//! pins veraPDF 1.30.3 over the `pdfa_fixture` fixture. A conformance checker
+//! would need to be run over the output; until one is, every assertion below is
+//! about structure and none is about conformance. The ICC profile tests are the
+//! sharpest version of that
 //! line: a profile can satisfy every structural check below and still be wrong in
 //! a way only a colour-management application would notice.
 
@@ -376,16 +379,23 @@ fn deflate_round_trips() {
 
 #[test]
 fn the_pdfa_claim_is_not_wider_than_it_is() {
-    // A guard on the documentation itself. The module claims structural support
-    // and explicitly not conformance; if the wording is ever changed to claim
-    // validation, this test is the reminder that nothing here runs a checker.
+    // A guard on the documentation itself. Conformance is claimed only where a
+    // checker actually runs -- the pinned veraPDF job in CI -- and the module
+    // keeps the scoping caveat that a fixture is one document, not a proof over
+    // every producible file. If the wording ever drifts into an unscoped
+    // "conforms" claim here, this test is the reminder that the crate's own
+    // tests cannot decide conformance.
     let src = include_str!("pdfa.rs");
     assert!(
-        src.contains("has not been validated against a PDF/A conformance checker"),
-        "the not-validated caveat is missing from the module docs"
+        src.contains("Validated against veraPDF 1.30.3 (official image, pinned) in CI"),
+        "the conformance claim must stay attributed to the CI gate"
     );
     assert!(
-        count(src.as_bytes(), b"conformance checker") >= 1,
+        src.contains("The fixture is one document, not a proof over every producible file."),
+        "the fixture-scoping caveat is missing from the module docs"
+    );
+    assert!(
+        count(src.as_bytes(), b"conformance") >= 1,
         "the conformance caveat should be stated where it matters"
     );
 }

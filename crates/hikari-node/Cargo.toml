@@ -1,8 +1,12 @@
+# `description` and `repository` were missing; crates.io showed a bare page for
+# this member and the manifest-level warning carried into every publish.
 [package]
 name = "hikari-rs-node"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "Node.js bindings for the Hikari render engine (napi)."
+repository = "https://github.com/theoxfaber/hikari"
 
 [lib]
 name = "hikari_node"

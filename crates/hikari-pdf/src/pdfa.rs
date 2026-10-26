@@ -8,13 +8,16 @@
 //! `pdfaid:part` and `pdfaid:conformance`, a document identifier, and a document
 //! title requirement in the viewer preferences.
 //!
-//! **This has not been validated against a PDF/A conformance checker**, and the
-//! README says so. What that means concretely: a checker may still reject the
-//! output for a reason not visible in the byte stream -- a font whose embedded
-//! program lacks a required table, an annotation missing a flag, an image whose
-//! colour space is not permitted in the chosen part. Producing the right
-//! metadata and claiming conformance are different claims, and only the first one
-//! is supported here.
+//! Validated against veraPDF 1.30.3 (official image, pinned) in CI: the
+//! `pdfa_fixture` fixture reports 129 rules / 523 checks passed, 0 failed, and
+//! the CI job gates on that verdict. What that validation covers and what it
+//! does not: a checker confirms the bytes satisfy the rules of the chosen
+//! part, and can still reject other output for a reason not visible in this
+//! crate's fixture -- a font whose embedded program lacks a required table, an
+//! annotation missing a flag, an image whose colour space is not permitted.
+//! The fixture is one document, not a proof over every producible file.
+//! Producing the right metadata and claiming conformance are different claims,
+//! and the conformance claim lives with the CI gate, not here.
 //!
 //! The alternative is not "ship it later". It is that a caller archiving a
 //! document has no path at all today, and the four requirements below are
